@@ -174,8 +174,10 @@ final class AudioCapture: NSObject, AudioCaptureService {
             let audioFile = try AVAudioFile(forWriting: sidecar, settings: settings)
             self.sidecarFile = audioFile
 
-            engine.inputNode.installTap(onBus: 0, bufferSize: 4096, format: tapFormat) { [weak self] buffer, _ in
-                try? self?.sidecarFile?.write(from: buffer)
+            // AVAudioFile.write is thread-safe. Capture the file directly into
+            // the closure to avoid crossing the @MainActor boundary from the tap thread.
+            engine.inputNode.installTap(onBus: 0, bufferSize: 4096, format: tapFormat) { buffer, _ in
+                try? audioFile.write(from: buffer)
             }
 
             try engine.start()
