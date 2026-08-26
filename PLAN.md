@@ -374,7 +374,15 @@ enum TranscriptionStatus {
 
 ---
 
-### Milestone 8 — Teams Automatic Detection
+### Milestone 8 — Teams Automatic Detection ✅ COMPLETE
+
+**Completed:** 2026-08-26 — Build 38
+
+**Technical notes:**
+- No Accessibility permission required — CGWindowListCopyWindowInfo used for window titles
+- Two-phase init in AppState — ApplicationCoordinator created after stored properties are ready
+- TeamsMeetingDetector only emits events; ApplicationCoordinator owns the recording start/stop translation
+- Auto-recording ON/OFF toggle in menu bar wires directly to detector start/stop
 
 **Goal:** App automatically detects when a Teams meeting starts/ends and records without manual intervention.
 
