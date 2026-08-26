@@ -54,13 +54,16 @@ final class AudioCapture: NSObject, AudioCaptureService {
 
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let config = SCStreamConfiguration()
-        config.capturesAudio = true
+        config.capturesAudio    = true   // system audio (Teams, other apps)
+        config.captureMicrophone = true  // default microphone (me)
+        // No microphoneCaptureDeviceID — uses system default microphone
         config.sampleRate    = 48000
         config.channelCount  = 2
         config.width  = 1280
         config.height = 720
         config.minimumFrameInterval = CMTime(value: 1, timescale: 5)
 
+        logger.info("🎙 Microphone capture enabled (system default device)")
         logger.info("AudioCapture: configuring recording output → \(self.outputURL.lastPathComponent)")
         let recordingConfig = SCRecordingOutputConfiguration()
         recordingConfig.outputURL      = outputURL
@@ -72,9 +75,10 @@ final class AudioCapture: NSObject, AudioCaptureService {
 
         do {
             try stream.addRecordingOutput(recOut)
-            try stream.addStreamOutput(self, type: .audio,  sampleHandlerQueue: DispatchQueue.main)
-            try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: DispatchQueue.main)
-            logger.info("AudioCapture: stream outputs added")
+            try stream.addStreamOutput(self, type: .audio,      sampleHandlerQueue: DispatchQueue.main)
+            try stream.addStreamOutput(self, type: .screen,     sampleHandlerQueue: DispatchQueue.main)
+            try stream.addStreamOutput(self, type: .microphone, sampleHandlerQueue: DispatchQueue.main)
+            logger.info("AudioCapture: stream outputs added (system audio + microphone)")
         } catch {
             logger.error("AudioCapture: failed to configure stream — \(error.localizedDescription)")
             throw error
@@ -143,11 +147,43 @@ final class AudioCapture: NSObject, AudioCaptureService {
     }
 }
 
-// MARK: - SCStreamOutput (stub)
+// MARK: - SCStreamOutput
 
 extension AudioCapture: SCStreamOutput {
-    nonisolated func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of outputType: SCStreamOutputType) {
-        // SCRecordingOutput handles all writing
+
+    nonisolated func stream(
+        _ stream: SCStream,
+        didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
+        of outputType: SCStreamOutputType
+    ) {
+        // SCRecordingOutput handles all writing.
+        // We log the first buffer from each source to confirm both are active.
+        switch outputType {
+        case .audio:
+            AudioCapture.logOnce(key: "systemAudio") {
+                let l = Logger(subsystem: "com.transcript-shark.MeetingRecorder", category: "AudioCapture")
+                l.info("🔊 System audio: first sample received")
+            }
+        case .microphone:
+            AudioCapture.logOnce(key: "microphone") {
+                let l = Logger(subsystem: "com.transcript-shark.MeetingRecorder", category: "AudioCapture")
+                l.info("🎙 Microphone: first sample received")
+            }
+        default:
+            break
+        }
+    }
+
+    // Log-once helper — thread-safe via NSLock, accessed from nonisolated context
+    private nonisolated(unsafe) static var loggedKeys = Set<String>()
+    private nonisolated(unsafe) static let logLock = NSLock()
+
+    private nonisolated static func logOnce(key: String, _ body: () -> Void) {
+        logLock.lock()
+        defer { logLock.unlock() }
+        guard !loggedKeys.contains(key) else { return }
+        loggedKeys.insert(key)
+        body()
     }
 }
 
