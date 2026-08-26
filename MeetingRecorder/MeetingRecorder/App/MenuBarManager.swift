@@ -216,8 +216,8 @@ final class MenuBarManager {
     }
 
     @objc private func openApp() {
-        NSApp.activate(ignoringOtherApps: true)
-        NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
+        // Delegate to AppDelegate which tracks the main window lifecycle
+        (NSApp.delegate as? AppDelegate)?.showMainWindow()
     }
 
     @objc private func openSettings() {
