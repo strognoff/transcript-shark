@@ -12,7 +12,12 @@ import Foundation
 
 struct Meeting: Identifiable, Sendable, Hashable {
 
-    static func == (lhs: Meeting, rhs: Meeting) -> Bool { lhs.id == rhs.id }
+    static func == (lhs: Meeting, rhs: Meeting) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.transcriptionStatus == rhs.transcriptionStatus &&
+        lhs.transcriptURL == rhs.transcriptURL &&
+        lhs.title == rhs.title
+    }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
     let id: UUID
     var title: String

@@ -36,8 +36,12 @@ struct MeetingDetailView: View {
             player.load(url: meeting.recordingURL)
             loadTranscript()
         }
-        .onChange(of: meeting.id) {
-            player.load(url: meeting.recordingURL)
+        .onChange(of: meeting) { old, new in
+            // Reload player only when switching to a different recording
+            if old.recordingURL != new.recordingURL {
+                player.load(url: new.recordingURL)
+            }
+            // Always reload transcript content — status or URL may have changed
             loadTranscript()
         }
         .onDisappear { player.stop() }
