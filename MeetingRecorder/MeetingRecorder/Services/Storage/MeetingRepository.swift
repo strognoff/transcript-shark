@@ -38,11 +38,41 @@ final class MeetingRepository {
 
     func reload() async {
         let dir = recordingsDir
-        let loaded = await Task.detached(priority: .userInitiated) {
-            await Self.scanDirectory(dir)
+        // Scan file metadata on a background thread (synchronous, no async)
+        let infos: [(url: URL, createdAt: Date, transcriptURL: URL?)] = await Task.detached(priority: .userInitiated) {
+            Self.scanMetadata(in: dir)
         }.value
+
+        // Load durations on the main actor — each in its own isolated call
+        var loaded: [Meeting] = []
+        for info in infos {
+            let duration = await Self.loadDuration(url: info.url)
+            let nameUUID = info.url.deletingPathExtension().lastPathComponent
+                .replacingOccurrences(of: "recording_", with: "")
+            let id = UUID(uuidString: nameUUID) ?? UUID()
+            let meeting = Meeting(
+                id: id,
+                title: Self.formattedTitle(from: info.createdAt),
+                startedAt: info.createdAt,
+                endedAt: duration > 0 ? info.createdAt.addingTimeInterval(duration) : nil,
+                meetingApplication: "Manual",
+                recordingURL: info.url,
+                transcriptURL: info.transcriptURL,
+                transcriptionStatus: info.transcriptURL != nil ? .completed : .pending
+            )
+            loaded.append(meeting)
+        }
+
         meetings = loaded.sorted { $0.startedAt > $1.startedAt }
         logger.info("MeetingRepository: loaded \(loaded.count) meetings")
+    }
+
+    private static func loadDuration(url: URL) async -> TimeInterval {
+        // Create a fresh asset for each file — do NOT reuse across calls
+        let asset = AVURLAsset(url: url)
+        guard let duration = try? await asset.load(.duration),
+              duration.isValid, !duration.isIndefinite else { return 0 }
+        return duration.seconds
     }
 
     // MARK: - Mutations
@@ -125,56 +155,27 @@ final class MeetingRepository {
         return groups.map { MeetingDateGroup(id: $0.label, label: $0.label, meetings: $0.meetings) }
     }
 
-    // MARK: - Disk scan
+    // MARK: - Disk scan (synchronous — no AVFoundation)
 
-    private static func scanDirectory(_ dir: URL) async -> [Meeting] {
+    private nonisolated static func scanMetadata(
+        in dir: URL
+    ) -> [(url: URL, createdAt: Date, transcriptURL: URL?)] {
         guard let contents = try? FileManager.default.contentsOfDirectory(
             at: dir,
             includingPropertiesForKeys: [.creationDateKey],
             options: .skipsHiddenFiles
         ) else { return [] }
 
-        var meetings: [Meeting] = []
-
-        for item in contents {
-            guard item.pathExtension == "mp4" else { continue }
-
+        return contents.compactMap { item in
+            guard item.pathExtension == "mp4" else { return nil }
             let attrs = try? FileManager.default.attributesOfItem(atPath: item.path)
             let createdAt = attrs?[.creationDate] as? Date ?? Date()
-
-            // Read actual audio duration from the file
-            let asset = AVURLAsset(url: item)
-            let duration: TimeInterval
-            if let cmDuration = try? await asset.load(.duration), cmDuration.isValid, !cmDuration.isIndefinite {
-                duration = cmDuration.seconds
-            } else {
-                duration = 0
-            }
-
-            // Each recording has its own transcript: recording_UUID_transcript.md
             let transcriptURL = item.deletingLastPathComponent()
                 .appendingPathComponent(item.deletingPathExtension().lastPathComponent + "_transcript.md")
             let resolvedTranscript: URL? = FileManager.default.fileExists(atPath: transcriptURL.path)
                 ? transcriptURL : nil
-
-            let nameUUID = item.deletingPathExtension().lastPathComponent
-                .replacingOccurrences(of: "recording_", with: "")
-            let id = UUID(uuidString: nameUUID) ?? UUID()
-
-            let meeting = Meeting(
-                id: id,
-                title: formattedTitle(from: createdAt),
-                startedAt: createdAt,
-                endedAt: duration > 0 ? createdAt.addingTimeInterval(duration) : nil,
-                meetingApplication: "Manual",
-                recordingURL: item,
-                transcriptURL: resolvedTranscript,
-                transcriptionStatus: resolvedTranscript != nil ? .completed : .pending
-            )
-            meetings.append(meeting)
+            return (url: item, createdAt: createdAt, transcriptURL: resolvedTranscript)
         }
-
-        return meetings
     }
 
     private static func formattedTitle(from date: Date) -> String {
