@@ -351,7 +351,9 @@ enum TranscriptionStatus {
 
 ---
 
-### Milestone 7 — Folder Organisation
+### Milestone 7 — Folder Organisation ✅ COMPLETE
+
+**Completed:** 2026-08-26 — Build 36
 
 **Goal:** Full folder management in the GUI.
 
