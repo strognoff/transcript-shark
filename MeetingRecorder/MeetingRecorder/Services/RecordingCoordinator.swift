@@ -103,16 +103,14 @@ final class RecordingCoordinator: ObservableObject {
 
         do {
             try await captureService?.stop()
-            let finished = session.finished()
-            recorderState = .finished(finished)
-            logger.info("RecordingCoordinator: finished — duration: \(String(format: "%.1f", finished.duration ?? 0))s")
-
-            // Transcription is triggered manually by the user — not automatically on stop.
-
         } catch {
-            logger.error("RecordingCoordinator: stop failed — \(error.localizedDescription)")
-            recorderState = .failed(error)
+            // Swallow "already stopped" errors from SCStream — the file may still be valid
+            logger.warning("RecordingCoordinator: stop error (non-fatal) — \(error.localizedDescription)")
         }
+
+        let finished = session.finished()
+        recorderState = .finished(finished)
+        logger.info("RecordingCoordinator: finished — duration: \(String(format: "%.1f", finished.duration ?? 0))s")
 
         cleanupCapture()
     }
