@@ -27,6 +27,8 @@ final class AudioCapture: NSObject, AudioCaptureService {
     private var stream: SCStream?
     private var recordingOutput: SCRecordingOutput?
     private var isStopping = false
+    // Accessed from nonisolated SCStreamOutput callback — SidecarRecorder is internally thread-safe
+    nonisolated(unsafe) private(set) var sidecarRecorder: SidecarRecorder?
 
     init(outputURL: URL) {
         self.outputURL = outputURL
@@ -85,6 +87,7 @@ final class AudioCapture: NSObject, AudioCaptureService {
         }
 
         self.stream = stream
+        self.sidecarRecorder = SidecarRecorder(outputURL: outputURL)
         isStopping = false
 
         logger.info("AudioCapture: starting capture")
@@ -109,8 +112,10 @@ final class AudioCapture: NSObject, AudioCaptureService {
         do { try await stream.stopCapture() } catch {
             logger.warning("AudioCapture: stop error (non-fatal) — \(error.localizedDescription)")
         }
+        sidecarRecorder?.finish()
         self.stream = nil
         self.recordingOutput = nil
+        self.sidecarRecorder = nil
         logger.info("AudioCapture: stopped")
     }
 
@@ -164,11 +169,15 @@ extension AudioCapture: SCStreamOutput {
                 let l = Logger(subsystem: "com.transcript-shark.MeetingRecorder", category: "AudioCapture")
                 l.info("🔊 System audio: first sample received")
             }
+            sidecarRecorder?.appendSystem(sampleBuffer)
+
         case .microphone:
             AudioCapture.logOnce(key: "microphone") {
                 let l = Logger(subsystem: "com.transcript-shark.MeetingRecorder", category: "AudioCapture")
                 l.info("🎙 Microphone: first sample received")
             }
+            sidecarRecorder?.appendMicrophone(sampleBuffer)
+
         default:
             break
         }

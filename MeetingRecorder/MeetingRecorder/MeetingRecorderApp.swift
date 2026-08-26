@@ -213,14 +213,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 440),
-            styleMask: [.titled, .closable, .fullSizeContentView],
+            contentRect: NSRect(x: 0, y: 0, width: 540, height: 440),
+            styleMask: [.titled, .closable],
             backing: .buffered,
             defer: true
         )
         window.title = "Settings"
         window.isReleasedWhenClosed = false
-        window.titlebarAppearsTransparent = false
 
         super.init(window: window)
 

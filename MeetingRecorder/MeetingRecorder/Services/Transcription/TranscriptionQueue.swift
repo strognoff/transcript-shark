@@ -108,10 +108,7 @@ actor TranscriptionQueue {
         await requestSpeechPermissionIfNeeded()
 
         do {
-            let result = try await transcriber.transcribe(
-                audioURL: job.session.outputURL,
-                language: nil
-            )
+            let result = try await transcribeSpeakerAttributed(session: job.session)
             let transcriptURL = try generator.write(session: job.session, result: result)
 
             job.status = .completed
@@ -148,6 +145,75 @@ actor TranscriptionQueue {
 
         isProcessing = false
         processNextIfIdle()
+    }
+
+    // MARK: - Speaker-attributed transcription
+
+    /// Transcribes the microphone and system audio sidecar files separately,
+    /// then merges the results sorted by timestamp with speaker labels.
+    /// Falls back to the combined recording (Speaker.unknown) if sidecars are absent.
+    private func transcribeSpeakerAttributed(session: RecordingSession) async throws -> TranscriptResult {
+        let base = session.outputURL.deletingPathExtension().lastPathComponent
+        let dir  = session.outputURL.deletingLastPathComponent()
+        let micURL    = dir.appendingPathComponent("\(base)_mic.caf")
+        let systemURL = dir.appendingPathComponent("\(base)_system.caf")
+
+        let fm = FileManager.default
+        let micExists    = fm.fileExists(atPath: micURL.path)
+        let systemExists = fm.fileExists(atPath: systemURL.path)
+
+        guard micExists || systemExists else {
+            logger.warning("TranscriptionQueue: no sidecar files found — falling back to combined audio")
+            return try await transcriber.transcribe(audioURL: session.outputURL, language: nil)
+        }
+
+        logger.info("TranscriptionQueue: transcribing with speaker attribution (mic=\(micExists), system=\(systemExists))")
+
+        // Transcribe each available sidecar concurrently
+        async let micResultTask: TranscriptResult? = micExists
+            ? (try? await transcriber.transcribe(audioURL: micURL, language: nil))
+            : nil
+        async let systemResultTask: TranscriptResult? = systemExists
+            ? (try? await transcriber.transcribe(audioURL: systemURL, language: nil))
+            : nil
+
+        let (micResult, systemResult) = await (micResultTask, systemResultTask)
+
+        // Tag and collect all segments
+        var all: [TranscriptSegment] = []
+
+        if let r = micResult {
+            let tagged = r.segments.map { seg in
+                TranscriptSegment(startTime: seg.startTime, endTime: seg.endTime, text: seg.text, speaker: .me)
+            }
+            all.append(contentsOf: tagged)
+            logger.info("TranscriptionQueue: mic — \(r.segments.count) segments")
+        }
+
+        if let r = systemResult {
+            let tagged = r.segments.map { seg in
+                TranscriptSegment(startTime: seg.startTime, endTime: seg.endTime, text: seg.text, speaker: .them)
+            }
+            all.append(contentsOf: tagged)
+            logger.info("TranscriptionQueue: system — \(r.segments.count) segments")
+        }
+
+        // Fall back to combined audio if both sidecars failed to produce results
+        if all.isEmpty {
+            logger.warning("TranscriptionQueue: sidecar transcription produced no segments — falling back to combined audio")
+            return try await transcriber.transcribe(audioURL: session.outputURL, language: nil)
+        }
+
+        // Merge and sort by start time
+        all.sort { $0.startTime < $1.startTime }
+
+        let fullText = all.map(\.text).joined(separator: " ")
+        let duration = (micResult?.duration ?? 0 > systemResult?.duration ?? 0)
+            ? micResult!.duration
+            : (systemResult?.duration ?? 0)
+        let language = micResult?.detectedLanguage ?? systemResult?.detectedLanguage
+
+        return TranscriptResult(text: fullText, segments: all, detectedLanguage: language, duration: duration)
     }
 
     // MARK: - Permissions

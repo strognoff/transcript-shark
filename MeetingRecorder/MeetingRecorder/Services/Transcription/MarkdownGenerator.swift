@@ -62,27 +62,81 @@ struct MarkdownGenerator: Sendable {
         if result.segments.isEmpty {
             lines += [result.text, ""]
         } else {
-            var lastBucket = -1
-            var paragraph = ""
-            for segment in result.segments {
-                let bucket = (Int(segment.startTime) / 60) * 60
-                if bucket != lastBucket {
-                    if !paragraph.isEmpty {
-                        lines += [paragraph.trimmingCharacters(in: .whitespaces), ""]
-                        paragraph = ""
-                    }
-                    lines += ["### \(formatTimestamp(segment.startTime))", ""]
-                    lastBucket = bucket
-                }
-                let word = segment.text.trimmingCharacters(in: .whitespaces)
-                paragraph += word + " "
-            }
-            if !paragraph.isEmpty {
-                lines += [paragraph.trimmingCharacters(in: .whitespaces), ""]
+            let hasAttribution = result.segments.contains { $0.speaker != .unknown }
+
+            if hasAttribution {
+                lines += transcriptLinesWithSpeakers(result.segments)
+            } else {
+                lines += transcriptLinesByTimestamp(result.segments)
             }
         }
 
         return lines.joined(separator: "\n")
+    }
+
+    // MARK: - Transcript rendering helpers
+
+    /// Renders segments grouped by consecutive speaker, emitting a bold speaker
+    /// label and timestamp at each speaker change.
+    nonisolated private func transcriptLinesWithSpeakers(_ segments: [TranscriptSegment]) -> [String] {
+        var lines: [String] = []
+        var currentSpeaker: Speaker? = nil
+        var paragraph = ""
+
+        for segment in segments {
+            let speaker = segment.speaker
+
+            if speaker != currentSpeaker {
+                // Flush previous paragraph
+                if !paragraph.isEmpty {
+                    lines += [paragraph.trimmingCharacters(in: .whitespaces), ""]
+                    paragraph = ""
+                }
+                // Emit speaker header: bold label + timestamp
+                let label: String
+                switch speaker {
+                case .me:      label = "**Me**"
+                case .them:    label = "**Them**"
+                case .unknown: label = "**—**"
+                }
+                lines += ["\(label) `\(formatTimestamp(segment.startTime))`", ""]
+                currentSpeaker = speaker
+            }
+
+            paragraph += segment.text.trimmingCharacters(in: .whitespaces) + " "
+        }
+
+        if !paragraph.isEmpty {
+            lines += [paragraph.trimmingCharacters(in: .whitespaces), ""]
+        }
+
+        return lines
+    }
+
+    /// Renders segments grouped by minute bucket (legacy / no attribution).
+    nonisolated private func transcriptLinesByTimestamp(_ segments: [TranscriptSegment]) -> [String] {
+        var lines: [String] = []
+        var lastBucket = -1
+        var paragraph = ""
+
+        for segment in segments {
+            let bucket = (Int(segment.startTime) / 60) * 60
+            if bucket != lastBucket {
+                if !paragraph.isEmpty {
+                    lines += [paragraph.trimmingCharacters(in: .whitespaces), ""]
+                    paragraph = ""
+                }
+                lines += ["### \(formatTimestamp(segment.startTime))", ""]
+                lastBucket = bucket
+            }
+            paragraph += segment.text.trimmingCharacters(in: .whitespaces) + " "
+        }
+
+        if !paragraph.isEmpty {
+            lines += [paragraph.trimmingCharacters(in: .whitespaces), ""]
+        }
+
+        return lines
     }
 
     // MARK: - Write to disk

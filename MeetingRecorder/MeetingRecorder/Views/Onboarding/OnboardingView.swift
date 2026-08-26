@@ -26,6 +26,7 @@ struct OnboardingView: View {
 
     @State private var currentStep: OnboardingStep = .welcome
     @State private var consentChecked: Bool = false
+    @State private var dontShowAgain: Bool = false
 
     // Permission states
     @State private var screenRecordingGranted: Bool = false
@@ -98,9 +99,14 @@ struct OnboardingView: View {
     private var primaryButton: some View {
         switch currentStep {
         case .welcome:
-            Button("Get Started") { withAnimation { advance() } }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+            Button("Get Started") {
+                if dontShowAgain {
+                    UserDefaults.standard.set(true, forKey: "onboardingCompleted")
+                }
+                withAnimation { advance() }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
 
         case .screenRecording:
             if screenRecordingGranted {
@@ -163,6 +169,14 @@ struct OnboardingView: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
+
+            Toggle(isOn: $dontShowAgain) {
+                Text("Don't show this at startup")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            .toggleStyle(.checkbox)
+            .padding(.top, 8)
         }
         .padding(.vertical, 20)
     }
@@ -360,7 +374,9 @@ struct OnboardingView: View {
     }
 
     private func completeOnboarding() {
-        UserDefaults.standard.set(true, forKey: "onboardingCompleted")
+        if dontShowAgain {
+            UserDefaults.standard.set(true, forKey: "onboardingCompleted")
+        }
         onComplete()
     }
 }

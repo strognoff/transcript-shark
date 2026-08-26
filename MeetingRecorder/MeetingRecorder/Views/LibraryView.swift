@@ -16,6 +16,7 @@ struct LibraryView: View {
     @State private var sidebarFilter: SidebarFilter = .allMeetings
     @State private var selectedMeeting: Meeting?
     @State private var searchText: String = ""
+    @State private var selectedMeetingTranscript: String = ""
 
     // MARK: - Helpers
 
@@ -28,6 +29,11 @@ struct LibraryView: View {
             guard !filtered.isEmpty else { return nil }
             return MeetingDateGroup(id: group.id, label: group.label, meetings: filtered)
         }
+    }
+
+    private func transcriptContent(for meeting: Meeting) -> String {
+        guard let url = meeting.transcriptURL else { return "" }
+        return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
     }
 
     private func reloadAndSync() async {
@@ -52,26 +58,43 @@ struct LibraryView: View {
             .searchable(text: $searchText, placement: .toolbar, prompt: "Search meetings")
         } detail: {
             if let meeting = selectedMeeting {
-                MeetingDetailView(
-                    meeting: meeting,
-                    folderRepo: folderRepo,
-                    onDelete: { m in
-                        repo.delete(m)
-                        selectedMeeting = nil
-                    },
-                    onRetry: { m in
-                        Task {
-                            await repo.retryTranscription(m)
-                            await reloadAndSync()
+                HSplitView {
+                    MeetingDetailView(
+                        meeting: meeting,
+                        folderRepo: folderRepo,
+                        onDelete: { m in
+                            repo.delete(m)
+                            selectedMeeting = nil
+                            selectedMeetingTranscript = ""
+                        },
+                        onRetry: { m in
+                            Task {
+                                await repo.retryTranscription(m)
+                                await reloadAndSync()
+                                selectedMeetingTranscript = transcriptContent(for: m)
+                            }
+                        },
+                        onMoveToFolder: { m, folderID in
+                            repo.move(m, toFolder: folderID)
+                            if let idx = repo.meetings.firstIndex(where: { $0.id == m.id }) {
+                                selectedMeeting = repo.meetings[idx]
+                            }
                         }
-                    },
-                    onMoveToFolder: { m, folderID in
-                        repo.move(m, toFolder: folderID)
-                        if let idx = repo.meetings.firstIndex(where: { $0.id == m.id }) {
-                            selectedMeeting = repo.meetings[idx]
-                        }
-                    }
-                )
+                    )
+                    .frame(minWidth: 380)
+
+                    SummaryPanelView(
+                        transcriptContent: selectedMeetingTranscript,
+                        recordingURL: meeting.recordingURL
+                    )
+                    .frame(minWidth: 280, idealWidth: 340)
+                }
+                .onChange(of: meeting) { _, newMeeting in
+                    selectedMeetingTranscript = transcriptContent(for: newMeeting)
+                }
+                .onAppear {
+                    selectedMeetingTranscript = transcriptContent(for: meeting)
+                }
             } else {
                 MeetingDetailEmptyView()
             }
@@ -86,6 +109,9 @@ struct LibraryView: View {
                     repo.refreshTranscriptionStatus(for: sessionID)
                 }
                 await reloadAndSync()
+                if let meeting = selectedMeeting {
+                    selectedMeetingTranscript = transcriptContent(for: meeting)
+                }
             }
         }
         .onChange(of: appState.recorderState) { _, newState in

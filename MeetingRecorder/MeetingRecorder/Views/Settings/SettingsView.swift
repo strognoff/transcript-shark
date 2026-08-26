@@ -13,27 +13,76 @@ import UserNotifications
 
 // MARK: - SettingsView
 
+private enum SettingsTab: String, CaseIterable {
+    case general       = "General"
+    case recording     = "Recording"
+    case transcription = "Transcription"
+    case storage       = "Storage"
+    case privacy       = "Privacy"
+    case aiSummary     = "AI Summary"
+
+    var icon: String {
+        switch self {
+        case .general:       return "gearshape"
+        case .recording:     return "record.circle"
+        case .transcription: return "text.bubble"
+        case .storage:       return "externaldrive"
+        case .privacy:       return "hand.raised.fill"
+        case .aiSummary:     return "sparkles"
+        }
+    }
+}
+
 struct SettingsView: View {
 
+    @State private var selectedTab: SettingsTab = .general
+
     var body: some View {
-        TabView {
-            GeneralSettingsTab()
-                .tabItem { Label("General", systemImage: "gearshape") }
+        VStack(spacing: 0) {
+            // Toolbar-style tab bar
+            HStack(spacing: 0) {
+                ForEach(SettingsTab.allCases, id: \.self) { tab in
+                    Button {
+                        selectedTab = tab
+                    } label: {
+                        VStack(spacing: 4) {
+                            Image(systemName: tab.icon)
+                                .font(.system(size: 18))
+                            Text(tab.rawValue)
+                                .font(.caption)
+                        }
+                        .frame(width: 72, height: 52)
+                        .background(
+                            selectedTab == tab
+                                ? Color.accentColor.opacity(0.15)
+                                : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 6)
+                        )
+                        .foregroundStyle(selectedTab == tab ? Color.accentColor : Color.primary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
 
-            RecordingSettingsTab()
-                .tabItem { Label("Recording", systemImage: "record.circle") }
+            Divider()
 
-            TranscriptionSettingsTab()
-                .tabItem { Label("Transcription", systemImage: "text.bubble") }
-
-            StorageSettingsTab()
-                .tabItem { Label("Storage", systemImage: "externaldrive") }
-
-            PrivacySettingsTab()
-                .tabItem { Label("Privacy", systemImage: "hand.raised.fill") }
+            // Tab content
+            Group {
+                switch selectedTab {
+                case .general:       GeneralSettingsTab()
+                case .recording:     RecordingSettingsTab()
+                case .transcription: TranscriptionSettingsTab()
+                case .storage:       StorageSettingsTab()
+                case .privacy:       PrivacySettingsTab()
+                case .aiSummary:     AISummarySettingsTab()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: 520, height: 400)
-        .padding(20)
+        .frame(width: 540, height: 440)
     }
 }
 
@@ -44,6 +93,7 @@ private struct GeneralSettingsTab: View {
     @State private var launchAtLoginEnabled: Bool = SMAppService.mainApp.status == .enabled
     @State private var notificationsEnabled: Bool = false
     @AppStorage("autoRecordingEnabled") private var autoRecordingEnabledStorage: Bool = true
+    @AppStorage("onboardingCompleted") private var onboardingCompleted: Bool = false
 
     var body: some View {
         Form {
@@ -63,6 +113,12 @@ private struct GeneralSettingsTab: View {
                     set: { AppState.shared.autoRecordingEnabled = $0 }
                 ))
                 .help("Automatically start recording when a supported meeting application is detected.")
+
+                Toggle("Show startup screen at launch", isOn: Binding(
+                    get: { !onboardingCompleted },
+                    set: { onboardingCompleted = !$0 }
+                ))
+                .help("When enabled, the welcome screen is shown every time the app launches.")
 
                 Toggle("Enable Notifications", isOn: $notificationsEnabled)
                     .onChange(of: notificationsEnabled) { _, newValue in
@@ -334,6 +390,76 @@ private struct PrivacySettingsTab: View {
         screenRecordingGranted = windows.contains { window in
             guard let pid = window[kCGWindowOwnerPID as String] as? Int32 else { return false }
             return pid != ourPID
+        }
+    }
+}
+
+// MARK: - AI Summary Tab
+
+private struct AISummarySettingsTab: View {
+
+    @AppStorage(kTabnineCLIPathKey) private var tabnineCLIPath: String = ""
+
+    private var resolvedPath: String {
+        tabnineCLIPath.isEmpty ? kDefaultTabnineCLIPath : tabnineCLIPath
+    }
+
+    private var binaryExists: Bool {
+        FileManager.default.isExecutableFile(atPath: resolvedPath)
+    }
+
+    var body: some View {
+        Form {
+            Section("Tabnine CLI") {
+                LabeledContent("Executable Path") {
+                    HStack(spacing: 8) {
+                        TextField(kDefaultTabnineCLIPath, text: $tabnineCLIPath)
+                            .textFieldStyle(.roundedBorder)
+                            .help("Path to the Tabnine CLI binary. Leave empty to use the default.")
+
+                        Button("Browse…") {
+                            browseForExecutable()
+                        }
+                        .controlSize(.small)
+                    }
+                }
+
+                LabeledContent("Status") {
+                    if binaryExists {
+                        Label("Found", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    } else {
+                        Label("Not found", systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    }
+                }
+                .font(.callout)
+
+                if !binaryExists {
+                    Text("The Tabnine CLI was not found at the specified path. Install Tabnine or update the path above.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section("About") {
+                Text("The AI Summary panel uses your local Tabnine installation to summarise meeting transcripts. No data is sent to external servers.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private func browseForExecutable() {
+        let panel = NSOpenPanel()
+        panel.title = "Select Tabnine Executable"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose the Tabnine CLI binary"
+        if panel.runModal() == .OK, let url = panel.url {
+            tabnineCLIPath = url.path
         }
     }
 }
