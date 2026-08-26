@@ -28,6 +28,38 @@ struct ContentView: View {
                     .padding(.bottom, 4)
                     .padding(.trailing, 8)
             }
+            // Keyboard shortcuts (hidden buttons register ⌘N, ⌘⇧R, ⌘,)
+            .background(
+                Group {
+                    // ⌘N — Start manual recording
+                    Button("") {
+                        guard case .idle = appState.recorderState else { return }
+                        Task { @MainActor in await appState.startRecording() }
+                    }
+                    .keyboardShortcut("n", modifiers: .command)
+                    .hidden()
+
+                    // ⌘⇧R — Start / stop recording
+                    Button("") {
+                        Task { @MainActor in
+                            if appState.isRecording {
+                                await appState.stopRecording()
+                            } else {
+                                await appState.startRecording()
+                            }
+                        }
+                    }
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
+                    .hidden()
+
+                    // ⌘, — Open Settings
+                    Button("") {
+                        NotificationCenter.default.post(name: .showSettings, object: nil)
+                    }
+                    .keyboardShortcut(",", modifiers: .command)
+                    .hidden()
+                }
+            )
     }
 
     // MARK: - Recording banner (shown during active recording)

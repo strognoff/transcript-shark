@@ -437,7 +437,9 @@ enum TranscriptionStatus {
 
 ---
 
-### Milestone 10 — Polish
+### Milestone 10 — Polish ✅ COMPLETE
+
+**Completed:** 2026-08-26 — Build 52
 
 **Goal:** App is complete, pleasant, and ready for daily use.
 

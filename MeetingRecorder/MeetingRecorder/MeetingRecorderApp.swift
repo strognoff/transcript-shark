@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var menuBarManager: MenuBarManager?
     private var windowController: MainWindowController?
+    private var settingsWindowController: SettingsWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -38,6 +39,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self,
             selector: #selector(showMainWindow),
             name: .showMainWindow,
+            object: nil
+        )
+
+        // Listen for show-settings requests from MenuBarManager
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(showSettings),
+            name: .showSettings,
             object: nil
         )
 
@@ -57,8 +66,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Create the menu bar
         menuBarManager = MenuBarManager(appState: AppState.shared)
 
-        // Show the window on first launch
-        showMainWindow()
+        // Show onboarding on first launch, otherwise open main window directly
+        let onboardingCompleted = UserDefaults.standard.bool(forKey: "onboardingCompleted")
+        if !onboardingCompleted {
+            showOnboarding()
+        } else {
+            showMainWindow()
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
@@ -112,12 +126,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Called by MenuBarManager — always works regardless of window state.
+    // MARK: - Onboarding
+
+    private func showOnboarding() {
+        guard let window = windowController?.window else { return }
+        let onboardingView = OnboardingView {
+            // Onboarding complete — dismiss sheet and show main window
+            window.endSheet(window.attachedSheet ?? NSWindow())
+            self.showMainWindow()
+        }
+        let hostingVC = NSHostingController(rootView: onboardingView)
+        let sheetWindow = NSWindow(contentViewController: hostingVC)
+        sheetWindow.styleMask = [.titled, .fullSizeContentView]
+        sheetWindow.titleVisibility = .hidden
+        sheetWindow.titlebarAppearsTransparent = true
+
+        window.orderFrontRegardless()
+        NSApp.activate(ignoringOtherApps: true)
+        window.beginSheet(sheetWindow)
+    }
+
+    /// Called by MenuBarManager and keyboard shortcut — always works regardless of window state.
     @objc func showMainWindow() {
         guard let window = windowController?.window else { return }
         // For .accessory policy apps, orderFrontRegardless is required —
         // makeKeyAndOrderFront alone does nothing when the app has no Dock icon.
         window.orderFrontRegardless()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Opens (or brings to front) the Settings window.
+    @objc func showSettings() {
+        if settingsWindowController == nil {
+            settingsWindowController = SettingsWindowController()
+        }
+        settingsWindowController?.showWindow(nil)
+        settingsWindowController?.window?.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
     }
 }
@@ -162,8 +206,41 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     }
 }
 
+// MARK: - Settings Window Controller
+
+@MainActor
+final class SettingsWindowController: NSWindowController, NSWindowDelegate {
+
+    init() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 440),
+            styleMask: [.titled, .closable, .fullSizeContentView],
+            backing: .buffered,
+            defer: true
+        )
+        window.title = "Settings"
+        window.isReleasedWhenClosed = false
+        window.titlebarAppearsTransparent = false
+
+        super.init(window: window)
+
+        window.contentView = NSHostingView(rootView: SettingsView())
+        window.delegate = self
+        window.center()
+        window.setFrameAutosaveName("SettingsWindow")
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        sender.orderOut(nil)
+        return false
+    }
+}
+
 // MARK: - Notification names
 
 extension Notification.Name {
     static let showMainWindow = Notification.Name("com.transcript-shark.showMainWindow")
+    static let showSettings   = Notification.Name("com.transcript-shark.showSettings")
 }

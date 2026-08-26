@@ -241,8 +241,7 @@ final class MenuBarManager {
     }
 
     @objc private func openSettings() {
-        // Milestone 10: open Settings window
-        openApp()
+        NotificationCenter.default.post(name: .showSettings, object: nil)
     }
 
     @objc private func quitApp() {
