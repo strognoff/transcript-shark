@@ -126,17 +126,20 @@ final class AudioCapture: NSObject, AudioCaptureService {
         do {
             let engine = AVAudioEngine()
 
-            // Point the engine's input to the Teams/Zoom virtual output device
-            // by setting the underlying HAL device UID on the input node
+            // Resolve UID → numeric AudioDeviceID, then set on the engine's input node
+            guard let numericID = Self.audioDeviceID(forUID: deviceUID) else {
+                logger.warning("AudioCapture: could not resolve device ID for UID \(deviceUID) — skipping tap")
+                return
+            }
             let unit = engine.inputNode.audioUnit!
-            var uid = deviceUID as CFString
+            var deviceID = numericID
             let err = AudioUnitSetProperty(
                 unit,
                 kAudioOutputUnitProperty_CurrentDevice,
                 kAudioUnitScope_Global,
                 0,
-                &uid,
-                UInt32(MemoryLayout<CFString>.size)
+                &deviceID,
+                UInt32(MemoryLayout<AudioDeviceID>.size)
             )
             guard err == noErr else {
                 logger.warning("AudioCapture: failed to set meeting audio device (\(err)) — skipping tap")
@@ -260,6 +263,28 @@ final class AudioCapture: NSObject, AudioCaptureService {
             if let name = deviceName(id), knownNames.contains(where: { name.contains($0) }) { return deviceUID(id) }
         }
         return nil
+    }
+
+    /// Converts a device UID string to a numeric AudioDeviceID.
+    static func audioDeviceID(forUID uid: String) -> AudioDeviceID? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyTranslateUIDToDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var deviceID: AudioDeviceID = kAudioObjectUnknown
+        var cfUID = uid as CFString
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            UInt32(MemoryLayout<CFString>.size),
+            &cfUID,
+            &size,
+            &deviceID
+        )
+        guard status == noErr, deviceID != kAudioObjectUnknown else { return nil }
+        return deviceID
     }
 
     private static func deviceUID(_ id: AudioObjectID) -> String? {
