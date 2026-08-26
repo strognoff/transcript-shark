@@ -8,6 +8,7 @@
 
 import Foundation
 import Observation
+import AVFoundation
 import OSLog
 
 private let logger = Logger(subsystem: "com.transcript-shark.MeetingRecorder", category: "MeetingRepository")
@@ -38,7 +39,7 @@ final class MeetingRepository {
     func reload() async {
         let dir = recordingsDir
         let loaded = await Task.detached(priority: .userInitiated) {
-            Self.scanDirectory(dir)
+            await Self.scanDirectory(dir)
         }.value
         meetings = loaded.sorted { $0.startedAt > $1.startedAt }
         logger.info("MeetingRepository: loaded \(loaded.count) meetings")
@@ -126,22 +127,29 @@ final class MeetingRepository {
 
     // MARK: - Disk scan
 
-    private nonisolated static func scanDirectory(_ dir: URL) -> [Meeting] {
+    private static func scanDirectory(_ dir: URL) async -> [Meeting] {
         guard let contents = try? FileManager.default.contentsOfDirectory(
             at: dir,
-            includingPropertiesForKeys: [.creationDateKey, .contentModificationDateKey],
+            includingPropertiesForKeys: [.creationDateKey],
             options: .skipsHiddenFiles
         ) else { return [] }
 
         var meetings: [Meeting] = []
 
         for item in contents {
-            // Each item in Recordings is either a .mp4 directly or could be a subfolder
-            // For M5, recordings are flat .mp4 files in the Recordings dir
             guard item.pathExtension == "mp4" else { continue }
 
             let attrs = try? FileManager.default.attributesOfItem(atPath: item.path)
             let createdAt = attrs?[.creationDate] as? Date ?? Date()
+
+            // Read actual audio duration from the file
+            let asset = AVURLAsset(url: item)
+            let duration: TimeInterval
+            if let cmDuration = try? await asset.load(.duration), cmDuration.isValid, !cmDuration.isIndefinite {
+                duration = cmDuration.seconds
+            } else {
+                duration = 0
+            }
 
             // Each recording has its own transcript: recording_UUID_transcript.md
             let transcriptURL = item.deletingLastPathComponent()
@@ -155,9 +163,9 @@ final class MeetingRepository {
 
             let meeting = Meeting(
                 id: id,
-                title: "Meeting",
+                title: formattedTitle(from: createdAt),
                 startedAt: createdAt,
-                endedAt: createdAt.addingTimeInterval(0),
+                endedAt: duration > 0 ? createdAt.addingTimeInterval(duration) : nil,
                 meetingApplication: "Manual",
                 recordingURL: item,
                 transcriptURL: resolvedTranscript,
@@ -167,5 +175,11 @@ final class MeetingRepository {
         }
 
         return meetings
+    }
+
+    private static func formattedTitle(from date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "d MMM · HH:mm"
+        return f.string(from: date)
     }
 }
