@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct MarkdownGenerator {
+struct MarkdownGenerator: Sendable {
 
     // MARK: - Generate
 

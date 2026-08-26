@@ -129,5 +129,5 @@ extension AudioCapture: SCRecordingOutputDelegate {
 
 enum AudioCaptureError: LocalizedError {
     case noDisplayFound
-    var errorDescription: String? { "No display found for audio capture." }
+    nonisolated var errorDescription: String? { "No display found for audio capture." }
 }

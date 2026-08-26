@@ -24,6 +24,7 @@ struct MeetingRecorderApp: App {
 
 // MARK: - App Delegate
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var menuBarManager: MenuBarManager?
@@ -71,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 // MARK: - Main Window Controller
 
+@MainActor
 final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     init() {

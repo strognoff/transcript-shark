@@ -109,7 +109,7 @@ enum TranscriptionError: LocalizedError {
     case recogniserUnavailable
     case noResult
 
-    var errorDescription: String? {
+    nonisolated var errorDescription: String? {
         switch self {
         case .permissionDenied:
             return "Speech recognition permission was denied. Enable it in System Settings → Privacy & Security → Speech Recognition."

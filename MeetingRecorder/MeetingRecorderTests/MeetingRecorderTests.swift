@@ -111,7 +111,8 @@ struct RecordingCoordinatorTests {
             Issue.record("Expected recording state, got \(coordinator.recorderState)")
             return
         }
-        #expect(mock.startCalled)
+        let startCalled = mock.startCalled
+        #expect(startCalled)
     }
 
     @Test func transitionsToFinishedOnStop() async {
@@ -123,7 +124,8 @@ struct RecordingCoordinatorTests {
             Issue.record("Expected finished state")
             return
         }
-        #expect(mock.stopCalled)
+        let stopCalled = mock.stopCalled
+        #expect(stopCalled)
     }
 
     @Test func guardAgainstDoubleStart() async {
@@ -136,7 +138,8 @@ struct RecordingCoordinatorTests {
             return
         }
         // start should only have been called once
-        #expect(mock.startCalled)
+        let startCalledOnce = mock.startCalled
+        #expect(startCalledOnce)
     }
 
     @Test func transitionsToFailedOnStartError() async {
@@ -162,6 +165,7 @@ struct RecordingCoordinatorTests {
             Issue.record("Expected idle state after reset")
             return
         }
-        #expect(coordinator.duration == 0)
+        let duration = coordinator.duration
+        #expect(duration == 0)
     }
 }

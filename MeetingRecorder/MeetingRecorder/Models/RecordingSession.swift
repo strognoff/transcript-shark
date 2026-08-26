@@ -18,14 +18,14 @@ struct RecordingSession: Sendable {
 
     // MARK: - Computed
 
-    nonisolated var duration: TimeInterval? {
+    var duration: TimeInterval? {
         guard let endedAt else { return nil }
         return endedAt.timeIntervalSince(startedAt)
     }
 
     // MARK: - Init
 
-    nonisolated init(
+    init(
         id: UUID = UUID(),
         startedAt: Date = Date(),
         endedAt: Date? = nil,
@@ -39,7 +39,7 @@ struct RecordingSession: Sendable {
         self.meetingApplication = meetingApplication
     }
 
-    nonisolated func finished(at date: Date = Date()) -> RecordingSession {
+    func finished(at date: Date = Date()) -> RecordingSession {
         RecordingSession(
             id: id,
             startedAt: startedAt,
