@@ -90,19 +90,27 @@ struct MeetingDetailView: View {
                 value: $player.currentTime,
                 in: 0...(player.duration > 0 ? player.duration : 1),
                 onEditingChanged: { editing in
-                    if !editing { player.seek(to: player.currentTime) }
+                    player.isScrubbing = editing
+                    if !editing {
+                        player.seek(to: player.currentTime)
+                    }
                 }
             )
             .tint(.accentColor)
+            .disabled(!player.isLoaded)
 
             HStack {
                 Text(timeString(player.currentTime))
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Text(timeString(player.duration))
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                if player.isLoaded {
+                    Text(timeString(player.duration))
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                } else {
+                    ProgressView().scaleEffect(0.5)
+                }
             }
 
             HStack(spacing: 20) {

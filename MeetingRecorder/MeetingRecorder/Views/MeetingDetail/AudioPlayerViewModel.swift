@@ -18,6 +18,10 @@ final class AudioPlayerViewModel: ObservableObject {
     @Published var currentTime: TimeInterval = 0
     @Published var duration: TimeInterval = 0
     @Published var speed: Float = 1.0
+    @Published var isLoaded = false
+
+    // True while the user is dragging the slider — suppresses the periodic update
+    var isScrubbing = false
 
     var speedLabel: String { "\(String(format: "%.2g", speed))×" }
 
@@ -29,18 +33,21 @@ final class AudioPlayerViewModel: ObservableObject {
 
     func load(url: URL) {
         stop()
+
         let item = AVPlayerItem(url: url)
         let p = AVPlayer(playerItem: item)
         self.player = p
 
-        // Observe duration
-        item.publisher(for: \.duration)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] duration in
-                guard duration.isValid, !duration.isIndefinite else { return }
-                self?.duration = duration.seconds
+        // Load duration asynchronously from the asset — avoids the "always 0" bug
+        // caused by reading duration before AVPlayerItem finishes loading.
+        Task { [weak self] in
+            guard let self else { return }
+            let asset = AVURLAsset(url: url)
+            if let d = try? await asset.load(.duration), d.isValid, !d.isIndefinite {
+                self.duration = d.seconds
+                self.isLoaded = true
             }
-            .store(in: &cancellables)
+        }
 
         // Observe playback end
         NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime, object: item)
@@ -52,10 +59,10 @@ final class AudioPlayerViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Periodic time observer — every 0.5s
-        let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
+        // Periodic time observer — always update currentTime, scrub suppresses it
+        let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
         timeObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            guard let self, self.isPlaying else { return }
+            guard let self, !self.isScrubbing else { return }
             self.currentTime = time.seconds
         }
     }
@@ -81,15 +88,18 @@ final class AudioPlayerViewModel: ObservableObject {
         player = nil
         timeObserver = nil
         isPlaying = false
+        isLoaded = false
         currentTime = 0
         duration = 0
+        isScrubbing = false
         cancellables.removeAll()
     }
 
     func seek(to time: TimeInterval) {
-        let cmTime = CMTime(seconds: time, preferredTimescale: 600)
+        let t = max(0, min(time, duration))
+        let cmTime = CMTime(seconds: t, preferredTimescale: 600)
         player?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
-        currentTime = time
+        currentTime = t
     }
 
     func setSpeed(_ newSpeed: Float) {
