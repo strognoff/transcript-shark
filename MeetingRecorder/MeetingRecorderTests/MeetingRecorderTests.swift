@@ -52,6 +52,7 @@ final class MockAudioCaptureService: AudioCaptureService {
 
 // MARK: - RecordingSession Tests
 
+@MainActor
 struct RecordingSessionTests {
 
     @Test func sessionHasCorrectDefaults() {
