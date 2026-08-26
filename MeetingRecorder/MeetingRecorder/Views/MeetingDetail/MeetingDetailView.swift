@@ -36,6 +36,10 @@ struct MeetingDetailView: View {
             player.load(url: meeting.recordingURL)
             loadTranscript()
         }
+        .onChange(of: meeting.id) {
+            player.load(url: meeting.recordingURL)
+            loadTranscript()
+        }
         .onDisappear { player.stop() }
     }
 
