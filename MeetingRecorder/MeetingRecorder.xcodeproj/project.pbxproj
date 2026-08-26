@@ -27,8 +27,9 @@
 		B3817BC4303EFBBE0019E8C2 /* MeetingRecorder.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MeetingRecorder.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B3817BD3303EFBC30019E8C2 /* MeetingRecorderTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MeetingRecorderTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B3817BDD303EFBC30019E8C2 /* MeetingRecorderUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MeetingRecorderUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		22AA39F9D30B29AAF5C389C4 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
-		BF91AA9ED84AF150F0270678 /* MenuBarManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarManager.swift; sourceTree = "<group>"; };
+		20A557E9B02E00107C84A72D /* TranscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionService.swift; sourceTree = "<group>"; };
+		B7E254B80E421F35FA16A4B1 /* AppleSpeechTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSpeechTranscriber.swift; sourceTree = "<group>"; };
+		5413644564429B0B039C53D6 /* MarkdownGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownGenerator.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -238,8 +239,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-							15987F385B0250375E157158 /* AppState.swift in Sources */,
-				4E07262255270E39A8AC03DA /* MenuBarManager.swift in Sources */,
+							9CBF5744DDE7E7CAEB0362B4 /* TranscriptionService.swift in Sources */,
+				47D18D083F3A58CF3B379FD4 /* AppleSpeechTranscriber.swift in Sources */,
+				49A4F26994B0DDCEC058D72E /* MarkdownGenerator.swift in Sources */,
 );
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -397,7 +399,7 @@
 				AUTOMATION_APPLE_EVENTS = NO;
 				CODE_SIGN_ENTITLEMENTS = MeetingRecorder/MeetingRecorder.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20;
+				CURRENT_PROJECT_VERSION = 21;
 				DEVELOPMENT_TEAM = L3VS77Z674;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -418,6 +420,7 @@
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSAudioCaptureUsageDescription = "Meeting Recorder captures system audio so other meeting participants can be included in recordings.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Meeting Recorder uses your microphone to record your voice during meetings.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Meeting Recorder transcribes your meeting recordings on-device using Apple Speech.";
 				INFOPLIST_KEY_NSScreenCaptureDescription = "Meeting Recorder captures system audio from your screen to record meeting participants.";
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
@@ -449,7 +452,7 @@
 				AUTOMATION_APPLE_EVENTS = NO;
 				CODE_SIGN_ENTITLEMENTS = MeetingRecorder/MeetingRecorder.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20;
+				CURRENT_PROJECT_VERSION = 21;
 				DEVELOPMENT_TEAM = L3VS77Z674;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -470,6 +473,7 @@
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSAudioCaptureUsageDescription = "Meeting Recorder captures system audio so other meeting participants can be included in recordings.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Meeting Recorder uses your microphone to record your voice during meetings.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Meeting Recorder transcribes your meeting recordings on-device using Apple Speech.";
 				INFOPLIST_KEY_NSScreenCaptureDescription = "Meeting Recorder captures system audio from your screen to record meeting participants.";
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
@@ -498,7 +502,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20;
+				CURRENT_PROJECT_VERSION = 21;
 				DEVELOPMENT_TEAM = L3VS77Z674;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
@@ -524,7 +528,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20;
+				CURRENT_PROJECT_VERSION = 21;
 				DEVELOPMENT_TEAM = L3VS77Z674;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
@@ -549,7 +553,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20;
+				CURRENT_PROJECT_VERSION = 21;
 				DEVELOPMENT_TEAM = L3VS77Z674;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
@@ -574,7 +578,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20;
+				CURRENT_PROJECT_VERSION = 21;
 				DEVELOPMENT_TEAM = L3VS77Z674;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.5;

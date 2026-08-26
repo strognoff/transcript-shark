@@ -1,0 +1,122 @@
+//
+//  AppleSpeechTranscriber.swift
+//  MeetingRecorder
+//
+//  Concrete TranscriptionService using Apple's on-device SFSpeechRecognizer.
+//  All processing happens locally — no audio is sent to Apple servers when
+//  requiresOnDeviceRecognition = true (requires macOS 13+).
+//
+
+import Speech
+import AVFoundation
+import OSLog
+
+private let logger = Logger(subsystem: "com.transcript-shark.MeetingRecorder", category: "AppleSpeechTranscriber")
+
+struct AppleSpeechTranscriber: TranscriptionService {
+
+    // MARK: - TranscriptionService
+
+    func transcribe(audioURL: URL, language: Locale?) async throws -> TranscriptResult {
+        logger.info("AppleSpeechTranscriber: starting — \(audioURL.lastPathComponent)")
+
+        // Request permission
+        let status = await requestAuthorisation()
+        guard status == .authorized else {
+            throw TranscriptionError.permissionDenied
+        }
+
+        // Resolve locale — prefer passed-in language, fall back to device locale
+        let locale = language ?? Locale.current
+        guard let recogniser = SFSpeechRecognizer(locale: locale) ?? SFSpeechRecognizer() else {
+            throw TranscriptionError.recogniserUnavailable
+        }
+
+        // Prefer on-device recognition for privacy
+        recogniser.defaultTaskHint = .dictation
+
+        // Measure audio duration for the transcript header
+        let duration = try await audioDuration(url: audioURL)
+
+        // Build the recognition request from the file URL
+        let request = SFSpeechURLRecognitionRequest(url: audioURL)
+        request.shouldReportPartialResults = false
+        if recogniser.supportsOnDeviceRecognition {
+            request.requiresOnDeviceRecognition = true
+            logger.info("AppleSpeechTranscriber: using on-device recognition")
+        }
+
+        // Run recognition
+        let (text, segments) = try await recognise(request: request, recogniser: recogniser)
+
+        logger.info("AppleSpeechTranscriber: completed — \(segments.count) segments")
+        return TranscriptResult(
+            text: text,
+            segments: segments,
+            detectedLanguage: recogniser.locale.identifier,
+            duration: duration
+        )
+    }
+
+    // MARK: - Helpers
+
+    private func requestAuthorisation() async -> SFSpeechRecognizerAuthorizationStatus {
+        await withCheckedContinuation { continuation in
+            SFSpeechRecognizer.requestAuthorization { status in
+                continuation.resume(returning: status)
+            }
+        }
+    }
+
+    // Returns (formattedString, segments) extracted on the callback thread before
+    // crossing the concurrency boundary — SFSpeechRecognitionResult is not Sendable.
+    private func recognise(
+        request: SFSpeechURLRecognitionRequest,
+        recogniser: SFSpeechRecognizer
+    ) async throws -> (text: String, segments: [TranscriptSegment]) {
+        try await withCheckedThrowingContinuation { continuation in
+            recogniser.recognitionTask(with: request) { result, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let result, result.isFinal else { return }
+                // Extract Sendable data on this thread before resuming
+                let text = result.bestTranscription.formattedString
+                let segments = result.bestTranscription.segments.map {
+                    TranscriptSegment(
+                        startTime: $0.timestamp,
+                        endTime: $0.timestamp + $0.duration,
+                        text: $0.substring
+                    )
+                }
+                continuation.resume(returning: (text, segments))
+            }
+        }
+    }
+
+    private func audioDuration(url: URL) async throws -> TimeInterval {
+        let asset = AVURLAsset(url: url)
+        let duration = try await asset.load(.duration)
+        return duration.seconds
+    }
+}
+
+// MARK: - Errors
+
+enum TranscriptionError: LocalizedError {
+    case permissionDenied
+    case recogniserUnavailable
+    case noResult
+
+    var errorDescription: String? {
+        switch self {
+        case .permissionDenied:
+            return "Speech recognition permission was denied. Enable it in System Settings → Privacy & Security → Speech Recognition."
+        case .recogniserUnavailable:
+            return "Speech recognition is not available on this device."
+        case .noResult:
+            return "No transcription result was produced."
+        }
+    }
+}
