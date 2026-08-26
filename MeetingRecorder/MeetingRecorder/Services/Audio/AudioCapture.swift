@@ -12,7 +12,7 @@ import CoreMedia
 import OSLog
 
 @MainActor
-final class AudioCapture: NSObject {
+final class AudioCapture: NSObject, AudioCaptureService {
 
     private let logger = Logger(subsystem: "com.transcript-shark.MeetingRecorder", category: "AudioCapture")
 

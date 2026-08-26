@@ -2,7 +2,7 @@
 //  ContentView.swift
 //  MeetingRecorder
 //
-//  Milestone 1 — minimal Start/Stop recording UI.
+//  Milestone 2 — UI driven by RecorderState from RecordingCoordinator.
 //
 
 import SwiftUI
@@ -13,7 +13,7 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 24) {
-            switch coordinator.state {
+            switch coordinator.recorderState {
 
             case .idle:
                 idleView
@@ -21,8 +21,8 @@ struct ContentView: View {
             case .recording:
                 recordingView
 
-            case .finished(let url):
-                finishedView(url: url)
+            case .finished(let session):
+                finishedView(session: session)
 
             case .failed(let error):
                 failedView(error: error)
@@ -36,12 +36,6 @@ struct ContentView: View {
                 .foregroundStyle(.tertiary)
                 .padding(8)
         }
-    }
-
-    private var buildLabel: String {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
-        let build   = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
-        return "v\(version) (\(build))"
     }
 
     // MARK: - State views
@@ -66,7 +60,6 @@ struct ContentView: View {
 
     private var recordingView: some View {
         VStack(spacing: 20) {
-            // Pulsing recording indicator
             Image(systemName: "record.circle")
                 .font(.system(size: 72))
                 .foregroundStyle(.red)
@@ -88,7 +81,7 @@ struct ContentView: View {
         }
     }
 
-    private func finishedView(url: URL) -> some View {
+    private func finishedView(session: RecordingSession) -> some View {
         VStack(spacing: 16) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 64))
@@ -97,7 +90,13 @@ struct ContentView: View {
             Text("Recording saved")
                 .font(.title2.bold())
 
-            Text(url.lastPathComponent)
+            if let duration = session.duration {
+                Text(durationString(duration))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            Text(session.outputURL.lastPathComponent)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -105,7 +104,7 @@ struct ContentView: View {
 
             HStack(spacing: 12) {
                 Button("Reveal in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                    NSWorkspace.shared.activateFileViewerSelecting([session.outputURL])
                 }
                 .buttonStyle(.bordered)
 
@@ -144,11 +143,15 @@ struct ContentView: View {
         let h = Int(seconds) / 3600
         let m = (Int(seconds) % 3600) / 60
         let s = Int(seconds) % 60
-        if h > 0 {
-            return String(format: "%d:%02d:%02d", h, m, s)
-        } else {
-            return String(format: "%02d:%02d", m, s)
-        }
+        return h > 0
+            ? String(format: "%d:%02d:%02d", h, m, s)
+            : String(format: "%02d:%02d", m, s)
+    }
+
+    private var buildLabel: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let build   = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        return "v\(version) (\(build))"
     }
 }
 

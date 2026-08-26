@@ -2,9 +2,14 @@
 //  RecordingCoordinator.swift
 //  MeetingRecorder
 //
-//  Orchestrates AudioCapture (SCStream + SCRecordingOutput) to produce
-//  a finished .m4a recording. SCRecordingOutput handles all file writing
-//  natively — no AVAssetWriter or manual buffer routing needed.
+//  Orchestrates recording sessions. References AudioCaptureService only —
+//  never the concrete AudioCapture type.
+//
+//  Architecture rules enforced here:
+//  - Guards against duplicate sessions (cannot start while already recording)
+//  - Owns RecordingSession lifecycle
+//  - Calls TranscriptionQueue.enqueue() on stop
+//  - Never references TranscriptionService or UI layers
 //
 
 import Combine
@@ -12,12 +17,12 @@ import OSLog
 
 private let logger = Logger(subsystem: "com.transcript-shark.MeetingRecorder", category: "RecordingCoordinator")
 
-// MARK: - State
+// MARK: - Recorder State
 
-enum RecordingState {
+enum RecorderState {
     case idle
-    case recording
-    case finished(URL)
+    case recording(RecordingSession)
+    case finished(RecordingSession)
     case failed(Error)
 }
 
@@ -26,76 +31,108 @@ enum RecordingState {
 @MainActor
 final class RecordingCoordinator: ObservableObject {
 
-    @Published var state: RecordingState = .idle
-    @Published var duration: TimeInterval = 0
+    // MARK: - Published state
 
-    private var capture: AudioCapture?
+    @Published private(set) var recorderState: RecorderState = .idle
+    @Published private(set) var duration: TimeInterval = 0
+
+    // MARK: - Private
+
+    /// Factory — injected so tests can substitute a mock AudioCaptureService.
+    private let makeCaptureService: (URL) -> AudioCaptureService
+
+    private var captureService: AudioCaptureService?
     private var timer: AnyCancellable?
-    private var recordingStart: Date?
+
+    // MARK: - Init
+
+    init(makeCaptureService: @escaping (URL) -> AudioCaptureService = { AudioCapture(outputURL: $0) }) {
+        self.makeCaptureService = makeCaptureService
+    }
 
     // MARK: - Start
 
-    func startRecording() async {
-        guard case .idle = state else { return }
+    func startRecording(application: String = "Manual") async {
+        guard case .idle = recorderState else {
+            logger.warning("RecordingCoordinator: startRecording called while not idle — ignored")
+            return
+        }
+
         logger.info("RecordingCoordinator: starting")
 
         do {
-            let dir = try recordingsDirectory()
-            let id = UUID().uuidString
-            let m4aURL = dir.appendingPathComponent("recording_\(id).mp4")
+            let outputURL = try sessionURL()
+            let service = makeCaptureService(outputURL)
+            captureService = service
 
-            let capture = AudioCapture(outputURL: m4aURL)
-            self.capture = capture
+            let session = RecordingSession(outputURL: outputURL, meetingApplication: application)
 
-            try await capture.start()
+            try await service.start()
 
-            state = .recording
-            recordingStart = Date()
+            recorderState = .recording(session)
             startTimer()
-            logger.info("RecordingCoordinator: recording started")
+            logger.info("RecordingCoordinator: recording started — \(session.id)")
 
         } catch {
             logger.error("RecordingCoordinator: start failed — \(error.localizedDescription)")
-            state = .failed(error)
-            cleanup()
+            recorderState = .failed(error)
+            cleanupCapture()
         }
     }
 
     // MARK: - Stop
 
     func stopRecording() async {
-        guard case .recording = state else { return }
-        logger.info("RecordingCoordinator: stopping")
+        guard case .recording(let session) = recorderState else {
+            logger.warning("RecordingCoordinator: stopRecording called while not recording — ignored")
+            return
+        }
+
+        logger.info("RecordingCoordinator: stopping — \(session.id)")
         stopTimer()
 
         do {
-            guard let capture else { throw RecordingCoordinatorError.missingCapture }
-            let outputURL = capture.outputURL
+            try await captureService?.stop()
+            let finished = session.finished()
+            recorderState = .finished(finished)
+            logger.info("RecordingCoordinator: finished — duration: \(String(format: "%.1f", finished.duration ?? 0))s")
 
-            try await capture.stop()
-
-            state = .finished(outputURL)
-            logger.info("RecordingCoordinator: finished — \(outputURL.lastPathComponent)")
+            // Hand off to transcription queue — coordinator's only coupling to Transcription layer
+            Task { await TranscriptionQueue.shared.enqueue(finished) }
 
         } catch {
             logger.error("RecordingCoordinator: stop failed — \(error.localizedDescription)")
-            state = .failed(error)
+            recorderState = .failed(error)
         }
 
-        cleanup()
+        cleanupCapture()
     }
 
     // MARK: - Reset
 
     func reset() {
-        cleanup()
+        cleanupCapture()
         duration = 0
-        state = .idle
+        recorderState = .idle
     }
 
-    // MARK: - Helpers
+    // MARK: - Convenience accessors for UI
 
-    private func recordingsDirectory() throws -> URL {
+    var isRecording: Bool {
+        if case .recording = recorderState { return true }
+        return false
+    }
+
+    var currentSession: RecordingSession? {
+        switch recorderState {
+        case .recording(let s), .finished(let s): return s
+        default: return nil
+        }
+    }
+
+    // MARK: - Private helpers
+
+    private func sessionURL() throws -> URL {
         let appSupport = try FileManager.default.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
@@ -106,15 +143,15 @@ final class RecordingCoordinator: ObservableObject {
             .appendingPathComponent("MeetingRecorder")
             .appendingPathComponent("Recordings")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
+        return dir.appendingPathComponent("recording_\(UUID().uuidString).mp4")
     }
 
     private func startTimer() {
+        let start = Date()
         timer = Timer.publish(every: 1, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
-                guard let self, let start = self.recordingStart else { return }
-                self.duration = Date().timeIntervalSince(start)
+                self?.duration = Date().timeIntervalSince(start)
             }
     }
 
@@ -123,18 +160,7 @@ final class RecordingCoordinator: ObservableObject {
         timer = nil
     }
 
-    private func cleanup() {
-        capture = nil
-        recordingStart = nil
-    }
-}
-
-// MARK: - Errors
-
-enum RecordingCoordinatorError: LocalizedError {
-    case missingCapture
-
-    var errorDescription: String? {
-        "No active recording session found."
+    private func cleanupCapture() {
+        captureService = nil
     }
 }
