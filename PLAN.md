@@ -285,7 +285,15 @@ enum TranscriptionStatus {
 
 ---
 
-### Milestone 5 — Library GUI
+### Milestone 5 — Library GUI ✅ COMPLETE
+
+**Completed:** 2026-08-26 — Build 25
+
+**Technical notes:**
+- `@Observable` macro (not `ObservableObject`) required for `@MainActor` classes in macOS 26 — use `@State` in views instead of `@StateObject`
+- `Meeting` needs `Hashable` for `List` selection binding and `.tag()`
+- `RecorderState` and `TranscriptionStatus` need `Equatable` for `onChange(of:)` and `==` comparisons
+- Recording banner overlay keeps the library view as the permanent main interface
 
 **Goal:** Three-column SwiftUI main window for browsing meeting history.
 
