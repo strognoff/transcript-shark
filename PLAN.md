@@ -216,7 +216,15 @@ enum TranscriptionStatus {
 
 ---
 
-### Milestone 3 — Menu Bar Application
+### Milestone 3 — Menu Bar Application ✅ COMPLETE
+
+**Completed:** 2026-08-26 — Build 20
+
+**Technical notes:**
+- `NSApp.delegate as? AppDelegate` fails when using `@NSApplicationDelegateAdaptor` — use `NotificationCenter` instead
+- `makeKeyAndOrderFront` does not work for `.accessory` policy apps — use `orderFrontRegardless`
+- `NSWindow.isReleasedWhenClosed = false` + `windowShouldClose returning false` (after `orderOut`) is the correct pattern for a menu bar app window
+- `SwiftUI WindowGroup` cannot reopen a window after it's closed — use `NSWindowController` with AppKit-managed lifecycle
 
 **Goal:** Working menu bar app with manual recording controls and visible status.
 
