@@ -21,6 +21,7 @@ final class AppState: ObservableObject {
     // MARK: - Forwarded published state (convenient for menu bar)
     @Published private(set) var recorderState: RecorderState = .idle
     @Published private(set) var duration: TimeInterval = 0
+    @Published var permissionError: String? = nil
     @Published var autoRecordingEnabled: Bool = true {
         didSet {
             if autoRecordingEnabled {

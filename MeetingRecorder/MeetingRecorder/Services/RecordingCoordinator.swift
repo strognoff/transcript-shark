@@ -87,6 +87,9 @@ final class RecordingCoordinator: ObservableObject {
         } catch {
             logger.error("RecordingCoordinator: start failed — \(error.localizedDescription)")
             recorderState = .failed(error)
+            if case AudioCaptureError.permissionDenied = error {
+                AppState.shared.permissionError = error.localizedDescription
+            }
             cleanupCapture()
         }
     }

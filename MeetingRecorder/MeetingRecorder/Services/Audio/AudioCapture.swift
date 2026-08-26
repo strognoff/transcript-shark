@@ -37,7 +37,18 @@ final class AudioCapture: NSObject, AudioCaptureService {
 
     func start() async throws {
         logger.info("AudioCapture: requesting screen content")
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+        let content: SCShareableContent
+        do {
+            content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+        } catch {
+            let msg = error.localizedDescription.lowercased()
+            if msg.contains("permission") || msg.contains("denied") || msg.contains("not authorized")
+                || (error as NSError).code == 7 /* SCStreamErrorCode.userDeclined */ {
+                logger.error("AudioCapture: permission denied — \(error.localizedDescription)")
+                throw AudioCaptureError.permissionDenied
+            }
+            throw error
+        }
         logger.info("AudioCapture: got \(content.displays.count) display(s)")
         guard let display = content.displays.first else { throw AudioCaptureError.noDisplayFound }
 
@@ -170,5 +181,14 @@ extension AudioCapture: SCRecordingOutputDelegate {
 
 enum AudioCaptureError: LocalizedError {
     case noDisplayFound
-    nonisolated var errorDescription: String? { "No display found for audio capture." }
+    case permissionDenied
+
+    nonisolated var errorDescription: String? {
+        switch self {
+        case .noDisplayFound:
+            return "No display found for audio capture."
+        case .permissionDenied:
+            return "Screen Recording permission is required to capture audio. Please grant access in System Settings > Privacy & Security > Screen Recording."
+        }
+    }
 }

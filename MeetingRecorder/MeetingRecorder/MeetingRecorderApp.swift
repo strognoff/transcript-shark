@@ -41,6 +41,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil
         )
 
+        // Sleep / wake — stop recording cleanly before sleep, resume monitoring on wake
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(systemWillSleep),
+            name: NSWorkspace.willSleepNotification, object: nil
+        )
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(systemDidWake),
+            name: NSWorkspace.didWakeNotification, object: nil
+        )
+
         // Create the main window controller (does not show yet)
         windowController = MainWindowController()
 
@@ -58,6 +68,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard AppState.shared.isRecording else { return .terminateNow }
+
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.messageText = "Stop recording and quit?"
+            alert.informativeText = "The current recording will be saved before quitting."
+            alert.addButton(withTitle: "Stop Recording and Quit")
+            alert.addButton(withTitle: "Cancel")
+            if alert.runModal() == .alertFirstButtonReturn {
+                Task { @MainActor in
+                    await AppState.shared.stopRecording()
+                    NSApp.reply(toApplicationShouldTerminate: true)
+                }
+            } else {
+                NSApp.reply(toApplicationShouldTerminate: false)
+            }
+        }
+        return .terminateLater
+    }
+
+    // MARK: - Sleep / Wake handlers
+
+    @objc private func systemWillSleep() {
+        let log = Logger(subsystem: "com.transcript-shark.MeetingRecorder", category: "AppDelegate")
+        log.info("AppDelegate: system will sleep — stopping recording and monitoring")
+        if AppState.shared.isRecording {
+            Task { @MainActor in
+                await AppState.shared.stopRecording()
+            }
+        }
+        AppState.shared.applicationCoordinator.stopMonitoring()
+    }
+
+    @objc private func systemDidWake() {
+        let log = Logger(subsystem: "com.transcript-shark.MeetingRecorder", category: "AppDelegate")
+        log.info("AppDelegate: system did wake — resuming monitoring")
+        if AppState.shared.autoRecordingEnabled {
+            AppState.shared.applicationCoordinator.startMonitoring()
+        }
     }
 
     /// Called by MenuBarManager — always works regardless of window state.

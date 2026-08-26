@@ -18,6 +18,9 @@ struct ContentView: View {
             .overlay(alignment: .bottomTrailing) {
                 recordingBanner
             }
+            .overlay(alignment: .bottom) {
+                permissionErrorBanner
+            }
             .overlay(alignment: .bottomTrailing) {
                 Text(buildLabel)
                     .font(.system(size: 10, design: .monospaced))
@@ -49,6 +52,41 @@ struct ContentView: View {
             .padding(.vertical, 10)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
             .padding(16)
+        }
+    }
+
+    // MARK: - Permission error banner
+
+    @ViewBuilder
+    private var permissionErrorBanner: some View {
+        if let error = appState.permissionError {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Screen Recording Permission Required", systemImage: "exclamationmark.shield")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                Text(error)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 12) {
+                    Button("Open System Settings") {
+                        NSWorkspace.shared.open(
+                            URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!
+                        )
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.accentColor)
+                    .controlSize(.small)
+                    Button("Dismiss") {
+                        appState.permissionError = nil
+                    }
+                    .controlSize(.small)
+                }
+            }
+            .padding(16)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
         }
     }
 
