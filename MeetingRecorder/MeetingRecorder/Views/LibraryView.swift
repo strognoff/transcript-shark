@@ -15,6 +15,16 @@ struct LibraryView: View {
     @State private var sidebarFilter: SidebarFilter = .allMeetings
     @State private var selectedMeeting: Meeting?
 
+    // MARK: - Helpers
+
+    private func reloadAndSync() async {
+        await repo.reload()
+        // Refresh selectedMeeting so the detail view reflects updated status/transcript
+        if let current = selectedMeeting {
+            selectedMeeting = repo.meetings.first { $0.id == current.id }
+        }
+    }
+
     var body: some View {
         NavigationSplitView {
             SidebarView(selection: $sidebarFilter)
@@ -34,31 +44,37 @@ struct LibraryView: View {
                         selectedMeeting = nil
                     },
                     onRetry: { m in
-                        Task { await repo.retryTranscription(m) }
+                        Task {
+                            await repo.retryTranscription(m)
+                            await reloadAndSync()
+                        }
                     }
                 )
             } else {
                 MeetingDetailEmptyView()
             }
         }
-        .onAppear { repo.load() }
-        // Reload when a new recording finishes
+        .onAppear {
+            Task { await reloadAndSync() }
+        }
         .onChange(of: appState.recorderState) { _, newState in
             if case .finished = newState {
-                Task { await repo.reload() }
+                Task { await reloadAndSync() }
             }
         }
-        // Reload when transcription completes (poll every 3s while a job is processing)
+        // Poll every 2s while transcription is active, refresh selected meeting when done
         .task {
             while true {
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
                 let jobs = await TranscriptionQueue.shared.allJobs()
                 let hasActive = jobs.contains {
                     if case .processing = $0.status { return true }
                     if case .pending = $0.status { return true }
                     return false
                 }
-                if hasActive { await repo.reload() }
+                if hasActive {
+                    await reloadAndSync()
+                }
             }
         }
     }
