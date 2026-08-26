@@ -107,8 +107,7 @@ final class RecordingCoordinator: ObservableObject {
             recorderState = .finished(finished)
             logger.info("RecordingCoordinator: finished — duration: \(String(format: "%.1f", finished.duration ?? 0))s")
 
-            // Hand off to transcription queue — coordinator's only coupling to Transcription layer
-            Task { await TranscriptionQueue.shared.enqueue(finished) }
+            // Transcription is triggered manually by the user — not automatically on stop.
 
         } catch {
             logger.error("RecordingCoordinator: stop failed — \(error.localizedDescription)")

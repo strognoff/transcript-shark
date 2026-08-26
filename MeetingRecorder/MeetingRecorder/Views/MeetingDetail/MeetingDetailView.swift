@@ -165,10 +165,17 @@ struct MeetingDetailView: View {
                     .font(.headline)
                 Spacer()
 
-                if meeting.transcriptionStatus == .pending || meeting.transcriptionStatus == .failed("") {
-                    Button("Retry Transcription") { onRetry(meeting) }
+                switch meeting.transcriptionStatus {
+                case .pending:
+                    Button("Transcribe") { onRetry(meeting) }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                case .failed:
+                    Button("Retry") { onRetry(meeting) }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
+                default:
+                    EmptyView()
                 }
 
                 Toggle(isOn: $showRawMarkdown) {
@@ -181,7 +188,7 @@ struct MeetingDetailView: View {
 
             switch meeting.transcriptionStatus {
             case .pending:
-                Label("Not yet transcribed", systemImage: "clock")
+                Label("Press Transcribe to generate a transcript", systemImage: "waveform.and.mic")
                     .foregroundStyle(.secondary)
 
             case .processing:

@@ -90,7 +90,9 @@ struct MarkdownGenerator: Sendable {
     nonisolated func write(session: RecordingSession, result: TranscriptResult, title: String? = nil) throws -> URL {
         let content = generate(session: session, result: result, title: title)
         let dir = session.outputURL.deletingLastPathComponent()
-        let url = dir.appendingPathComponent("transcript.md")
+        // Name is tied to the recording file so each recording has its own transcript
+        let recordingName = session.outputURL.deletingPathExtension().lastPathComponent
+        let url = dir.appendingPathComponent("\(recordingName)_transcript.md")
         try content.write(to: url, atomically: true, encoding: .utf8)
         return url
     }

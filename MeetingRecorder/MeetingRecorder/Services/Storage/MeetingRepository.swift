@@ -143,17 +143,11 @@ final class MeetingRepository {
             let attrs = try? FileManager.default.attributesOfItem(atPath: item.path)
             let createdAt = attrs?[.creationDate] as? Date ?? Date()
 
-            // Check for transcript alongside
+            // Each recording has its own transcript: recording_UUID_transcript.md
             let transcriptURL = item.deletingLastPathComponent()
                 .appendingPathComponent(item.deletingPathExtension().lastPathComponent + "_transcript.md")
-            let transcriptExists = FileManager.default.fileExists(atPath: transcriptURL.path)
-
-            // Also check plain transcript.md in same folder
-            let transcriptURL2 = item.deletingLastPathComponent().appendingPathComponent("transcript.md")
-            let transcript2Exists = FileManager.default.fileExists(atPath: transcriptURL2.path)
-
-            let resolvedTranscript: URL? = transcript2Exists ? transcriptURL2 :
-                                           transcriptExists  ? transcriptURL  : nil
+            let resolvedTranscript: URL? = FileManager.default.fileExists(atPath: transcriptURL.path)
+                ? transcriptURL : nil
 
             let nameUUID = item.deletingPathExtension().lastPathComponent
                 .replacingOccurrences(of: "recording_", with: "")
