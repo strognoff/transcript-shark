@@ -76,6 +76,11 @@ final class AudioCapture: NSObject, AudioCaptureService {
             logger.info("AudioCapture: recording output added")
             try stream.addStreamOutput(self, type: .audio,  sampleHandlerQueue: DispatchQueue.main)
             try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: DispatchQueue.main)
+            // Register a microphone stub when captureMicrophone is enabled —
+            // SCStream requires a handler for every output type it produces.
+            if config.captureMicrophone {
+                try stream.addStreamOutput(self, type: .microphone, sampleHandlerQueue: DispatchQueue.main)
+            }
             logger.info("AudioCapture: stream outputs added")
         } catch {
             logger.error("AudioCapture: failed to configure stream — \(error.localizedDescription)")
@@ -180,7 +185,9 @@ extension AudioCapture {
 
 extension AudioCapture: SCStreamOutput {
     nonisolated func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of outputType: SCStreamOutputType) {
-        // SCRecordingOutput handles all writing
+        // SCRecordingOutput handles all writing.
+        // This stub satisfies SCStream's requirement that every enabled output
+        // type (.audio, .screen, .microphone) has a registered handler.
     }
 }
 
