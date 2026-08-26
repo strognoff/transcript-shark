@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct MeetingListView: View {
 
@@ -27,6 +28,9 @@ struct MeetingListView: View {
                             ForEach(group.meetings) { meeting in
                                 MeetingRowView(meeting: meeting)
                                     .tag(meeting)
+                                    .onDrag {
+                                        NSItemProvider(object: meeting.id.uuidString as NSString)
+                                    }
                             }
                         }
                     }

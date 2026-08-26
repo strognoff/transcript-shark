@@ -29,7 +29,7 @@ struct LibraryView: View {
 
     var body: some View {
         NavigationSplitView {
-            SidebarView(selection: $sidebarFilter, folderRepo: folderRepo)
+            SidebarView(selection: $sidebarFilter, folderRepo: folderRepo, meetingRepo: repo)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 200)
         } content: {
             MeetingListView(

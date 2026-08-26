@@ -6,11 +6,13 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SidebarView: View {
 
     @Binding var selection: SidebarFilter
     var folderRepo: FolderRepository
+    var meetingRepo: MeetingRepository
 
     @State private var renamingFolder: Folder? = nil
     @State private var renameText: String = ""
@@ -35,6 +37,7 @@ struct SidebarView: View {
                         folder: folder,
                         selection: $selection,
                         folderRepo: folderRepo,
+                        meetingRepo: meetingRepo,
                         onRename: { f in
                             renamingFolder = f
                             renameText = f.name
@@ -87,16 +90,21 @@ private struct FolderRowView: View {
     let folder: Folder
     @Binding var selection: SidebarFilter
     var folderRepo: FolderRepository
+    var meetingRepo: MeetingRepository
     let onRename: (Folder) -> Void
     let onNewSubfolder: (UUID) -> Void
 
     @State private var isExpanded: Bool = true
+    @State private var isDropTargeted: Bool = false
 
     var body: some View {
         if folder.children.isEmpty {
-            Label(folder.name, systemImage: "folder")
+            Label(folder.name, systemImage: isDropTargeted ? "folder.fill.badge.plus" : "folder")
                 .tag(SidebarFilter.folder(folder.id))
                 .contextMenu { contextMenuItems }
+                .onDrop(of: [.plainText], isTargeted: $isDropTargeted) { providers in
+                    handleDrop(providers: providers)
+                }
         } else {
             DisclosureGroup(isExpanded: $isExpanded) {
                 ForEach(folder.children) { child in
@@ -104,16 +112,35 @@ private struct FolderRowView: View {
                         folder: child,
                         selection: $selection,
                         folderRepo: folderRepo,
+                        meetingRepo: meetingRepo,
                         onRename: onRename,
                         onNewSubfolder: onNewSubfolder
                     )
                 }
             } label: {
-                Label(folder.name, systemImage: "folder")
+                Label(folder.name, systemImage: isDropTargeted ? "folder.fill.badge.plus" : "folder")
                     .tag(SidebarFilter.folder(folder.id))
                     .contextMenu { contextMenuItems }
             }
+            .onDrop(of: [.plainText], isTargeted: $isDropTargeted) { providers in
+                handleDrop(providers: providers)
+            }
         }
+    }
+
+    private func handleDrop(providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first else { return false }
+        provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { item, _ in
+            guard let data = item as? Data,
+                  let uuidString = String(data: data, encoding: .utf8),
+                  let id = UUID(uuidString: uuidString),
+                  let meeting = meetingRepo.meetings.first(where: { $0.id == id })
+            else { return }
+            DispatchQueue.main.async {
+                meetingRepo.move(meeting, toFolder: folder.id)
+            }
+        }
+        return true
     }
 
     @ViewBuilder
@@ -122,7 +149,7 @@ private struct FolderRowView: View {
         Button("New Subfolder") { onNewSubfolder(folder.id) }
         Divider()
         Button("Delete", role: .destructive) {
-            folderRepo.deleteFolder(folder, deleteMeetings: false, meetingRepo: MeetingRepository())
+            folderRepo.deleteFolder(folder, deleteMeetings: false, meetingRepo: meetingRepo)
         }
     }
 }
