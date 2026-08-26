@@ -64,6 +64,13 @@ final class ApplicationCoordinator {
                 return
             }
             Task { @MainActor in
+                // If a previous recording is in .finished or .failed state, reset to idle first
+                switch state.recorderState {
+                case .finished, .failed:
+                    state.reset()
+                default:
+                    break
+                }
                 await state.startRecording(application: context.applicationName)
             }
 
