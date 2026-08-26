@@ -11,6 +11,7 @@ struct LibraryView: View {
 
     @EnvironmentObject private var appState: AppState
     @State private var repo = MeetingRepository()
+    @State private var folderRepo = FolderRepository()
 
     @State private var sidebarFilter: SidebarFilter = .allMeetings
     @State private var selectedMeeting: Meeting?
@@ -18,6 +19,7 @@ struct LibraryView: View {
     // MARK: - Helpers
 
     private func reloadAndSync() async {
+        folderRepo.reload()
         await repo.reload()
         // Refresh selectedMeeting so the detail view reflects updated status/transcript
         if let current = selectedMeeting {
@@ -27,11 +29,11 @@ struct LibraryView: View {
 
     var body: some View {
         NavigationSplitView {
-            SidebarView(selection: $sidebarFilter)
+            SidebarView(selection: $sidebarFilter, folderRepo: folderRepo)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 200)
         } content: {
             MeetingListView(
-                groups: repo.grouped(by: sidebarFilter),
+                groups: repo.grouped(by: sidebarFilter, allFolders: folderRepo.folders),
                 selection: $selectedMeeting
             )
             .navigationSplitViewColumnWidth(min: 220, ideal: 260)
@@ -39,6 +41,7 @@ struct LibraryView: View {
             if let meeting = selectedMeeting {
                 MeetingDetailView(
                     meeting: meeting,
+                    folderRepo: folderRepo,
                     onDelete: { m in
                         repo.delete(m)
                         selectedMeeting = nil
@@ -47,6 +50,12 @@ struct LibraryView: View {
                         Task {
                             await repo.retryTranscription(m)
                             await reloadAndSync()
+                        }
+                    },
+                    onMoveToFolder: { m, folderID in
+                        repo.move(m, toFolder: folderID)
+                        if let idx = repo.meetings.firstIndex(where: { $0.id == m.id }) {
+                            selectedMeeting = repo.meetings[idx]
                         }
                     }
                 )

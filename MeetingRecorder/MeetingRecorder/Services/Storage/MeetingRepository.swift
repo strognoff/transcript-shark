@@ -135,6 +135,38 @@ final class MeetingRepository {
         }
     }
 
+    func move(_ meeting: Meeting, toFolder folderID: UUID?) {
+        guard let record = fetchRecord(id: meeting.id) else { return }
+        record.folderID = folderID
+        record.updatedAt = Date()
+        try? context.save()
+        if let idx = meetings.firstIndex(where: { $0.id == meeting.id }) {
+            meetings[idx].folderID = folderID
+        }
+    }
+
+    func meetings(inFolder folderID: UUID) -> [Meeting] {
+        meetings.filter { $0.folderID == folderID }
+    }
+
+    func meetings(inFolderAndDescendants folderID: UUID, allFolders: [Folder]) -> [Meeting] {
+        let ids = allDescendantFolderIDs(of: folderID, allFolders: allFolders) + [folderID]
+        return meetings.filter { m in
+            guard let mid = m.folderID else { return false }
+            return ids.contains(mid)
+        }
+    }
+
+    private func allDescendantFolderIDs(of id: UUID, allFolders: [Folder]) -> [UUID] {
+        var result: [UUID] = []
+        let children = allFolders.filter { $0.parentFolderID == id }
+        for child in children {
+            result.append(child.id)
+            result += allDescendantFolderIDs(of: child.id, allFolders: allFolders)
+        }
+        return result
+    }
+
     func retryTranscription(_ meeting: Meeting) async {
         // Update status in DB
         if let record = fetchRecord(id: meeting.id) {
@@ -180,7 +212,7 @@ final class MeetingRepository {
 
     // MARK: - Filtering & Grouping
 
-    func filtered(by filter: SidebarFilter) -> [Meeting] {
+    func filtered(by filter: SidebarFilter, allFolders: [Folder] = []) -> [Meeting] {
         let cal = Calendar.current
         let now = Date()
         switch filter {
@@ -189,11 +221,13 @@ final class MeetingRepository {
         case .thisWeek:
             let weekAgo = cal.date(byAdding: .day, value: -7, to: now)!
             return meetings.filter { $0.startedAt >= weekAgo }
+        case .folder(let id):
+            return meetings(inFolderAndDescendants: id, allFolders: allFolders)
         }
     }
 
-    func grouped(by filter: SidebarFilter) -> [MeetingDateGroup] {
-        let list = filtered(by: filter)
+    func grouped(by filter: SidebarFilter, allFolders: [Folder] = []) -> [MeetingDateGroup] {
+        let list = filtered(by: filter, allFolders: allFolders)
         let cal = Calendar.current
         let now = Date()
         var groups: [(label: String, meetings: [Meeting])] = []

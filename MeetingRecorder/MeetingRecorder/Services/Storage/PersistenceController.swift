@@ -32,7 +32,7 @@ final class PersistenceController {
         try? FileManager.default.createDirectory(at: dbDir, withIntermediateDirectories: true)
         let storeURL = dbDir.appendingPathComponent("meetings.sqlite")
 
-        let schema = Schema([MeetingRecord.self])
+        let schema = Schema([MeetingRecord.self, FolderRecord.self])
         let config = ModelConfiguration(schema: schema, url: storeURL)
 
         do {

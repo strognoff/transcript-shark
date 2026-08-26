@@ -27,6 +27,7 @@ struct Meeting: Identifiable, Sendable, Hashable {
     let recordingURL: URL
     var transcriptURL: URL?
     var transcriptionStatus: TranscriptionStatus
+    var folderID: UUID?
 
     var duration: TimeInterval? {
         guard let endedAt else { return nil }
@@ -40,6 +41,7 @@ enum SidebarFilter: Hashable {
     case allMeetings
     case today
     case thisWeek
+    case folder(UUID)
 }
 
 // MARK: - Date grouping

@@ -74,7 +74,8 @@ final class MeetingRecord {
             meetingApplication: meetingApplication,
             recordingURL: recordingURL,
             transcriptURL: transcriptURL,
-            transcriptionStatus: TranscriptionStatus(rawString: transcriptionStatusRaw)
+            transcriptionStatus: TranscriptionStatus(rawString: transcriptionStatusRaw),
+            folderID: folderID
         )
     }
 

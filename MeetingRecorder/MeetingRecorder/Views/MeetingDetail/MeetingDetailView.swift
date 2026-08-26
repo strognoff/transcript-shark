@@ -11,13 +11,16 @@ import AVFoundation
 struct MeetingDetailView: View {
 
     let meeting: Meeting
+    var folderRepo: FolderRepository
     let onDelete: (Meeting) -> Void
     let onRetry:  (Meeting) -> Void
+    let onMoveToFolder: (Meeting, UUID?) -> Void
 
     @StateObject private var player = AudioPlayerViewModel()
     @State private var showRawMarkdown = false
     @State private var searchText = ""
     @State private var transcriptContent: String = ""
+    @State private var showFolderPicker = false
 
     var body: some View {
         ScrollView {
@@ -45,6 +48,17 @@ struct MeetingDetailView: View {
             loadTranscript()
         }
         .onDisappear { player.stop() }
+        .sheet(isPresented: $showFolderPicker) {
+            MoveFolderSheetView(
+                meeting: meeting,
+                folderRepo: folderRepo,
+                onMove: { folderID in
+                    onMoveToFolder(meeting, folderID)
+                    showFolderPicker = false
+                },
+                onCancel: { showFolderPicker = false }
+            )
+        }
     }
 
     // MARK: - Header
@@ -256,6 +270,12 @@ struct MeetingDetailView: View {
     private var toolbarItems: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
             Button {
+                showFolderPicker = true
+            } label: {
+                Label("Move to Folder", systemImage: "folder.badge.gear")
+            }
+
+            Button {
                 NSWorkspace.shared.activateFileViewerSelecting([meeting.recordingURL])
             } label: {
                 Label("Reveal in Finder", systemImage: "folder")
@@ -316,5 +336,70 @@ struct MeetingDetailEmptyView: View {
             systemImage: "waveform",
             description: Text("Select a meeting from the list to view its details.")
         )
+    }
+}
+
+// MARK: - Move to Folder sheet
+
+private struct MoveFolderSheetView: View {
+    let meeting: Meeting
+    var folderRepo: FolderRepository
+    let onMove: (UUID?) -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Move to Folder")
+                .font(.headline)
+
+            List {
+                Button {
+                    onMove(nil)
+                } label: {
+                    Label("No Folder", systemImage: "tray")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(meeting.folderID == nil ? Color.accentColor : Color.primary)
+
+                ForEach(flatFolders(folderRepo.folders, depth: 0)) { item in
+                    Button {
+                        onMove(item.folder.id)
+                    } label: {
+                        HStack {
+                            Text(String(repeating: "    ", count: item.depth))
+                                + Text(Image(systemName: "folder"))
+                                + Text(" \(item.folder.name)")
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(meeting.folderID == item.folder.id ? Color.accentColor : Color.primary)
+                }
+            }
+            .listStyle(.plain)
+            .frame(minHeight: 180)
+
+            HStack {
+                Spacer()
+                Button("Cancel", action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 280, minHeight: 240)
+    }
+
+    private struct FlatFolderItem: Identifiable {
+        let id: UUID
+        let folder: Folder
+        let depth: Int
+    }
+
+    private func flatFolders(_ folders: [Folder], depth: Int) -> [FlatFolderItem] {
+        var result: [FlatFolderItem] = []
+        for f in folders {
+            result.append(FlatFolderItem(id: f.id, folder: f, depth: depth))
+            result += flatFolders(f.children, depth: depth + 1)
+        }
+        return result
     }
 }
