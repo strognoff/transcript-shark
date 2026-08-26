@@ -2,18 +2,19 @@
 //  ContentView.swift
 //  MeetingRecorder
 //
-//  Milestone 2 — UI driven by RecorderState from RecordingCoordinator.
+//  Milestone 3 — Main window UI, driven by AppState from environment.
+//  Closing this window does NOT quit the app (menu bar persists).
 //
 
 import SwiftUI
 
 struct ContentView: View {
 
-    @StateObject private var coordinator = RecordingCoordinator()
+    @EnvironmentObject private var appState: AppState
 
     var body: some View {
         VStack(spacing: 24) {
-            switch coordinator.recorderState {
+            switch appState.recorderState {
 
             case .idle:
                 idleView
@@ -29,7 +30,7 @@ struct ContentView: View {
             }
         }
         .padding(40)
-        .frame(width: 420, height: 300)
+        .frame(width: 420, height: 320)
         .overlay(alignment: .bottomTrailing) {
             Text(buildLabel)
                 .font(.system(size: 10, design: .monospaced))
@@ -49,8 +50,12 @@ struct ContentView: View {
             Text("Meeting Recorder")
                 .font(.title2.bold())
 
-            Button("Start Recording") {
-                Task { @MainActor in await coordinator.startRecording() }
+            Text("Waiting for a meeting…")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
+            Button("Start Recording Manually") {
+                Task { @MainActor in await appState.startRecording() }
             }
             .buttonStyle(.borderedProminent)
             .tint(.red)
@@ -68,12 +73,12 @@ struct ContentView: View {
             Text("Recording")
                 .font(.title2.bold())
 
-            Text(durationString(coordinator.duration))
+            Text(durationString(appState.duration))
                 .font(.system(.title, design: .monospaced))
                 .foregroundStyle(.secondary)
 
             Button("Stop Recording") {
-                Task { @MainActor in await coordinator.stopRecording() }
+                Task { @MainActor in await appState.stopRecording() }
             }
             .buttonStyle(.borderedProminent)
             .tint(.primary)
@@ -109,7 +114,7 @@ struct ContentView: View {
                 .buttonStyle(.bordered)
 
                 Button("Record Again") {
-                    coordinator.reset()
+                    appState.reset()
                 }
                 .buttonStyle(.borderedProminent)
             }
@@ -131,7 +136,7 @@ struct ContentView: View {
                 .multilineTextAlignment(.center)
 
             Button("Try Again") {
-                coordinator.reset()
+                appState.reset()
             }
             .buttonStyle(.borderedProminent)
         }
@@ -157,4 +162,5 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
+        .environmentObject(AppState.shared)
 }
