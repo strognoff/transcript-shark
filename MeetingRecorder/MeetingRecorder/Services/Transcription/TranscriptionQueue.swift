@@ -119,7 +119,14 @@ actor TranscriptionQueue {
             jobs[id] = job
 
             logger.info("TranscriptionQueue: completed \(id) → \(transcriptURL.lastPathComponent)")
-            NotificationCenter.default.post(name: .transcriptionJobCompleted, object: nil)
+            let completedID = id
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: .transcriptionJobCompleted,
+                    object: nil,
+                    userInfo: ["sessionID": completedID]
+                )
+            }
             await sendNotification(title: "Transcript ready", body: job.session.outputURL.deletingLastPathComponent().lastPathComponent)
 
         } catch {
@@ -128,7 +135,14 @@ actor TranscriptionQueue {
             job.errorMessage = message
             jobs[id] = job
             logger.error("TranscriptionQueue: failed \(id) — \(message)")
-            NotificationCenter.default.post(name: .transcriptionJobCompleted, object: nil)
+            let failedID = id
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: .transcriptionJobCompleted,
+                    object: nil,
+                    userInfo: ["sessionID": failedID]
+                )
+            }
             await sendNotification(title: "Transcription failed", body: message)
         }
 

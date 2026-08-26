@@ -79,8 +79,14 @@ struct LibraryView: View {
         .onAppear {
             Task { await reloadAndSync() }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .transcriptionJobCompleted)) { _ in
-            Task { await reloadAndSync() }
+        .onReceive(NotificationCenter.default.publisher(for: .transcriptionJobCompleted)) { notification in
+            Task {
+                // Refresh the specific meeting's DB record before reloading
+                if let sessionID = notification.userInfo?["sessionID"] as? UUID {
+                    repo.refreshTranscriptionStatus(for: sessionID)
+                }
+                await reloadAndSync()
+            }
         }
         .onChange(of: appState.recorderState) { _, newState in
             if case .finished = newState {
