@@ -2,8 +2,8 @@
 //  ContentView.swift
 //  MeetingRecorder
 //
-//  Milestone 3 — Main window UI, driven by AppState from environment.
-//  Closing this window does NOT quit the app (menu bar persists).
+//  Milestone 5 — Root view. Shows LibraryView (three-column) as the main
+//  interface. Recording state is accessible via the menu bar.
 //
 
 import SwiftUI
@@ -13,132 +13,42 @@ struct ContentView: View {
     @EnvironmentObject private var appState: AppState
 
     var body: some View {
-        VStack(spacing: 24) {
-            switch appState.recorderState {
-
-            case .idle:
-                idleView
-
-            case .recording:
-                recordingView
-
-            case .finished(let session):
-                finishedView(session: session)
-
-            case .failed(let error):
-                failedView(error: error)
+        LibraryView()
+            .environmentObject(appState)
+            .overlay(alignment: .bottomTrailing) {
+                recordingBanner
             }
-        }
-        .padding(40)
-        .frame(width: 420, height: 320)
-        .overlay(alignment: .bottomTrailing) {
-            Text(buildLabel)
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(.tertiary)
-                .padding(8)
-        }
+            .overlay(alignment: .bottomTrailing) {
+                Text(buildLabel)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                    .padding(.bottom, 4)
+                    .padding(.trailing, 8)
+            }
     }
 
-    // MARK: - State views
+    // MARK: - Recording banner (shown during active recording)
 
-    private var idleView: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "mic.circle.fill")
-                .font(.system(size: 72))
-                .foregroundStyle(.red)
-
-            Text("Meeting Recorder")
-                .font(.title2.bold())
-
-            Text("Waiting for a meeting…")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-
-            Button("Start Recording Manually") {
-                Task { @MainActor in await appState.startRecording() }
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.red)
-            .controlSize(.large)
-        }
-    }
-
-    private var recordingView: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "record.circle")
-                .font(.system(size: 72))
-                .foregroundStyle(.red)
-                .symbolEffect(.pulse)
-
-            Text("Recording")
-                .font(.title2.bold())
-
-            Text(durationString(appState.duration))
-                .font(.system(.title, design: .monospaced))
-                .foregroundStyle(.secondary)
-
-            Button("Stop Recording") {
-                Task { @MainActor in await appState.stopRecording() }
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.primary)
-            .controlSize(.large)
-        }
-    }
-
-    private func finishedView(session: RecordingSession) -> some View {
-        VStack(spacing: 16) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 64))
-                .foregroundStyle(.green)
-
-            Text("Recording saved")
-                .font(.title2.bold())
-
-            if let duration = session.duration {
-                Text(durationString(duration))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-
-            Text(session.outputURL.lastPathComponent)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-
-            HStack(spacing: 12) {
-                Button("Reveal in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([session.outputURL])
-                }
-                .buttonStyle(.bordered)
-
-                Button("Record Again") {
-                    appState.reset()
+    @ViewBuilder
+    private var recordingBanner: some View {
+        if case .recording = appState.recorderState {
+            HStack(spacing: 10) {
+                Image(systemName: "record.circle")
+                    .foregroundStyle(.red)
+                    .symbolEffect(.pulse)
+                Text("Recording — \(durationString(appState.duration))")
+                    .font(.system(.callout, design: .monospaced))
+                Button("Stop") {
+                    Task { @MainActor in await appState.stopRecording() }
                 }
                 .buttonStyle(.borderedProminent)
+                .tint(.red)
+                .controlSize(.small)
             }
-        }
-    }
-
-    private func failedView(error: Error) -> some View {
-        VStack(spacing: 16) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 64))
-                .foregroundStyle(.orange)
-
-            Text("Recording failed")
-                .font(.title2.bold())
-
-            Text(error.localizedDescription)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-
-            Button("Try Again") {
-                appState.reset()
-            }
-            .buttonStyle(.borderedProminent)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .padding(16)
         }
     }
 

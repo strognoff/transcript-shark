@@ -27,7 +27,7 @@ struct TranscriptionJob: Sendable {
     }
 }
 
-enum TranscriptionStatus: Sendable {
+enum TranscriptionStatus: Sendable, Equatable {
     case pending
     case processing
     case completed

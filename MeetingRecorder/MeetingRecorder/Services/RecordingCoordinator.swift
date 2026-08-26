@@ -19,11 +19,21 @@ private let logger = Logger(subsystem: "com.transcript-shark.MeetingRecorder", c
 
 // MARK: - Recorder State
 
-enum RecorderState {
+enum RecorderState: Equatable {
     case idle
     case recording(RecordingSession)
     case finished(RecordingSession)
     case failed(Error)
+
+    static func == (lhs: RecorderState, rhs: RecorderState) -> Bool {
+        switch (lhs, rhs) {
+        case (.idle, .idle):                         return true
+        case (.recording(let a), .recording(let b)): return a.id == b.id
+        case (.finished(let a), .finished(let b)):   return a.id == b.id
+        case (.failed, .failed):                     return true
+        default:                                     return false
+        }
+    }
 }
 
 // MARK: - Coordinator
