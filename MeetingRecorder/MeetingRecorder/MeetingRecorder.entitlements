@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- App Sandbox disabled during Milestone 1 development.
+	     SCStream (system audio) and AVAudioEngine (microphone) both trigger
+	     audioanalyticsd connections that are blocked by the sandbox without
+	     private entitlements. Sandbox will be re-enabled before distribution. -->
+	<key>com.apple.security.app-sandbox</key>
+	<false/>
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+</dict>
+</plist>
