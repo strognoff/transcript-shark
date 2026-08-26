@@ -249,7 +249,15 @@ enum TranscriptionStatus {
 
 ---
 
-### Milestone 4 — Transcription
+### Milestone 4 — Transcription ✅ COMPLETE
+
+**Completed:** 2026-08-26 — Build 23
+
+**Technical notes:**
+- `SFSpeechRecognizer.requestAuthorization` crashes in test/background contexts — only call it from the main app (TranscriptionQueue does this before processing)
+- On-device recognition (`requiresOnDeviceRecognition = true`) silently returns empty text for files > ~1 minute — implemented fallback to server-based recognition
+- `SFSpeechRecognitionResult` is not `Sendable` — extract text and segments into value types before resuming the checked continuation
+- `MarkdownGenerator` must be `Sendable` to be stored as a property in the `TranscriptionQueue` actor
 
 **Goal:** After recording stops, automatically produce a `transcript.md` using Apple Speech.
 

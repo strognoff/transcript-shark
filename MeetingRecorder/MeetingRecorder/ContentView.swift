@@ -7,7 +7,6 @@
 //
 
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct ContentView: View {
 
@@ -61,25 +60,6 @@ struct ContentView: View {
             .buttonStyle(.borderedProminent)
             .tint(.red)
             .controlSize(.large)
-
-            // DEBUG: manually transcribe an existing recording
-            Button("Transcribe Existing File…") {
-                let panel = NSOpenPanel()
-                panel.allowedContentTypes = [.mpeg4Movie]
-                panel.directoryURL = FileManager.default.urls(
-                    for: .applicationSupportDirectory, in: .userDomainMask
-                ).first?.appendingPathComponent("MeetingRecorder/Recordings")
-                panel.message = "Select a recording to transcribe"
-                guard panel.runModal() == .OK, let url = panel.url else { return }
-                let session = RecordingSession(
-                    startedAt: Date(),
-                    endedAt: Date(),
-                    outputURL: url
-                )
-                Task { await TranscriptionQueue.shared.enqueue(session) }
-            }
-            .buttonStyle(.bordered)
-            .foregroundStyle(.secondary)
         }
     }
 
