@@ -58,6 +58,27 @@ final class MenuBarManager {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.updateTimerItem() }
             .store(in: &cancellables)
+
+        appState.$autoRecordingEnabled
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updateIcon(); self?.rebuildMenu() }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: .potentialMeetingDetected)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.showDetectingState() }
+            .store(in: &cancellables)
+    }
+
+    private func showDetectingState() {
+        // Briefly show a "detecting" icon if we are idle (not yet recording).
+        guard case .idle = appState.recorderState else { return }
+        statusItem?.button?.title = "◎"
+        // Revert to normal idle icon after 4 seconds if still idle.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+            guard let self, case .idle = self.appState.recorderState else { return }
+            self.statusItem?.button?.title = "○"
+        }
     }
 
     // MARK: - Icon
