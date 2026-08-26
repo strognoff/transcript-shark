@@ -45,6 +45,7 @@ final class RecordingCoordinator: ObservableObject {
 
     @Published private(set) var recorderState: RecorderState = .idle
     @Published private(set) var duration: TimeInterval = 0
+    private var isStopping = false
 
     // MARK: - Private
 
@@ -93,11 +94,16 @@ final class RecordingCoordinator: ObservableObject {
     // MARK: - Stop
 
     func stopRecording() async {
+        guard !isStopping else {
+            logger.warning("RecordingCoordinator: stopRecording already in progress — ignored")
+            return
+        }
         guard case .recording(let session) = recorderState else {
             logger.warning("RecordingCoordinator: stopRecording called while not recording — ignored")
             return
         }
 
+        isStopping = true
         logger.info("RecordingCoordinator: stopping — \(session.id)")
         stopTimer()
 
@@ -169,5 +175,6 @@ final class RecordingCoordinator: ObservableObject {
 
     private func cleanupCapture() {
         captureService = nil
+        isStopping = false
     }
 }

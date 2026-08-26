@@ -104,9 +104,15 @@ final class AudioCapture: NSObject, AudioCaptureService {
         }
         self.stream = nil
 
-        // Merge sidecar audio into the MP4 if we have one
+        // Merge sidecar audio into the MP4 if it has meaningful content (> 4KB)
         if let sidecar = sidecarURL {
-            await mergeSidecar(sidecar, into: outputURL)
+            let sidecarSize = (try? FileManager.default.attributesOfItem(atPath: sidecar.path)[.size] as? Int) ?? 0
+            if sidecarSize > 4096 {
+                logger.info("AudioCapture: sidecar size \(sidecarSize) bytes — merging")
+                await mergeSidecar(sidecar, into: outputURL)
+            } else {
+                logger.warning("AudioCapture: sidecar too small (\(sidecarSize) bytes) — skipping merge")
+            }
             try? FileManager.default.removeItem(at: sidecar)
             self.sidecarURL = nil
         }
@@ -146,15 +152,21 @@ final class AudioCapture: NSObject, AudioCaptureService {
                 return
             }
 
-            let inputFormat = engine.inputNode.outputFormat(forBus: 0)
+            // Use the hardware format to avoid format mismatch — do NOT use
+            // outputFormat(forBus:) which returns the engine's internal client format
+            let hwFormat = engine.inputNode.inputFormat(forBus: 0)
+            let tapFormat = hwFormat.sampleRate > 0 ? hwFormat : engine.inputNode.outputFormat(forBus: 0)
+
+            logger.info("AudioCapture: tap format — \(tapFormat.sampleRate)Hz \(tapFormat.channelCount)ch")
+
             let sidecar = outputURL.deletingLastPathComponent()
                 .appendingPathComponent(outputURL.deletingPathExtension().lastPathComponent + "_meeting_audio.caf")
             sidecarURL = sidecar
 
             let settings: [String: Any] = [
                 AVFormatIDKey: kAudioFormatLinearPCM,
-                AVSampleRateKey: inputFormat.sampleRate,
-                AVNumberOfChannelsKey: inputFormat.channelCount,
+                AVSampleRateKey: tapFormat.sampleRate,
+                AVNumberOfChannelsKey: tapFormat.channelCount,
                 AVLinearPCMBitDepthKey: 32,
                 AVLinearPCMIsFloatKey: true,
                 AVLinearPCMIsNonInterleaved: false,
@@ -162,7 +174,7 @@ final class AudioCapture: NSObject, AudioCaptureService {
             let audioFile = try AVAudioFile(forWriting: sidecar, settings: settings)
             self.sidecarFile = audioFile
 
-            engine.inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
+            engine.inputNode.installTap(onBus: 0, bufferSize: 4096, format: tapFormat) { [weak self] buffer, _ in
                 try? self?.sidecarFile?.write(from: buffer)
             }
 
