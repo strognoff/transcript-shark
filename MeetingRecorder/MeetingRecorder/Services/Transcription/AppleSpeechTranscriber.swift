@@ -47,9 +47,18 @@ struct AppleSpeechTranscriber: TranscriptionService {
         }
 
         // Run recognition
-        let (text, segments) = try await recognise(request: request, recogniser: recogniser)
+        var (text, segments) = try await recognise(request: request, recogniser: recogniser)
 
-        logger.info("AppleSpeechTranscriber: completed — \(segments.count) segments")
+        // On-device recognition has a ~1 minute limit on some macOS versions.
+        // If we get empty text and used on-device, retry without the restriction.
+        if text.isEmpty && request.requiresOnDeviceRecognition {
+            logger.warning("AppleSpeechTranscriber: on-device returned empty — retrying without on-device restriction")
+            let fallbackRequest = SFSpeechURLRecognitionRequest(url: audioURL)
+            fallbackRequest.shouldReportPartialResults = false
+            (text, segments) = try await recognise(request: fallbackRequest, recogniser: recogniser)
+        }
+
+        logger.info("AppleSpeechTranscriber: completed — \(segments.count) segments, \(text.count) chars")
         return TranscriptResult(
             text: text,
             segments: segments,
@@ -67,13 +76,23 @@ struct AppleSpeechTranscriber: TranscriptionService {
         recogniser: SFSpeechRecognizer
     ) async throws -> (text: String, segments: [TranscriptSegment]) {
         try await withCheckedThrowingContinuation { continuation in
+            var resumed = false
             recogniser.recognitionTask(with: request) { result, error in
+                guard !resumed else { return }
+
                 if let error {
+                    logger.error("AppleSpeechTranscriber: recognition error — \(error.localizedDescription)")
+                    resumed = true
                     continuation.resume(throwing: error)
                     return
                 }
-                guard let result, result.isFinal else { return }
-                // Extract Sendable data on this thread before resuming
+
+                guard let result else { return }
+
+                logger.info("AppleSpeechTranscriber: partial result isFinal=\(result.isFinal) text='\(result.bestTranscription.formattedString.prefix(80))'")
+
+                guard result.isFinal else { return }
+
                 let text = result.bestTranscription.formattedString
                 let segments = result.bestTranscription.segments.map {
                     TranscriptSegment(
@@ -82,6 +101,9 @@ struct AppleSpeechTranscriber: TranscriptionService {
                         text: $0.substring
                     )
                 }
+
+                logger.info("AppleSpeechTranscriber: final — \(text.count) chars, \(segments.count) segments")
+                resumed = true
                 continuation.resume(returning: (text, segments))
             }
         }
