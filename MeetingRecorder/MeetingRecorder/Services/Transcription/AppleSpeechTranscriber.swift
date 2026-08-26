@@ -20,8 +20,8 @@ struct AppleSpeechTranscriber: TranscriptionService {
     func transcribe(audioURL: URL, language: Locale?) async throws -> TranscriptResult {
         logger.info("AppleSpeechTranscriber: starting — \(audioURL.lastPathComponent)")
 
-        // Request permission
-        let status = await requestAuthorisation()
+        // Check permission — caller must request it before invoking transcribe()
+        let status = SFSpeechRecognizer.authorizationStatus()
         guard status == .authorized else {
             throw TranscriptionError.permissionDenied
         }
@@ -59,14 +59,6 @@ struct AppleSpeechTranscriber: TranscriptionService {
     }
 
     // MARK: - Helpers
-
-    private func requestAuthorisation() async -> SFSpeechRecognizerAuthorizationStatus {
-        await withCheckedContinuation { continuation in
-            SFSpeechRecognizer.requestAuthorization { status in
-                continuation.resume(returning: status)
-            }
-        }
-    }
 
     // Returns (formattedString, segments) extracted on the callback thread before
     // crossing the concurrency boundary — SFSpeechRecognitionResult is not Sendable.

@@ -8,6 +8,7 @@
 
 import Foundation
 import UserNotifications
+import Speech
 import OSLog
 
 // MARK: - Job
@@ -99,6 +100,9 @@ actor TranscriptionQueue {
         jobs[id] = job
         logger.info("TranscriptionQueue: processing \(id)")
 
+        // Ensure Speech permission is granted before calling the transcriber
+        await requestSpeechPermissionIfNeeded()
+
         do {
             let result = try await transcriber.transcribe(
                 audioURL: job.session.outputURL,
@@ -124,6 +128,17 @@ actor TranscriptionQueue {
 
         isProcessing = false
         processNextIfIdle()
+    }
+
+    // MARK: - Permissions
+
+    private func requestSpeechPermissionIfNeeded() async {
+        guard SFSpeechRecognizer.authorizationStatus() != .authorized else { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            SFSpeechRecognizer.requestAuthorization { _ in
+                continuation.resume()
+            }
+        }
     }
 
     // MARK: - Notification

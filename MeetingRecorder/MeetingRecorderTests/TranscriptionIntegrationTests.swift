@@ -8,6 +8,7 @@
 
 import Testing
 import Foundation
+import Speech
 @testable import MeetingRecorder
 
 @MainActor
@@ -15,6 +16,15 @@ struct TranscriptionIntegrationTests {
 
     @Test("Transcribe most recent recording", .timeLimit(.minutes(5)))
     func transcribeMostRecentRecording() async throws {
+        // Request Speech Recognition permission — must happen before calling transcriber
+        let status: SFSpeechRecognizerAuthorizationStatus = await withCheckedContinuation { continuation in
+            SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
+        }
+        guard status == .authorized else {
+            Issue.record("Speech Recognition permission not granted — grant it in System Settings and retry")
+            return
+        }
+
         let recordingsDir = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
         ).first!.appendingPathComponent("MeetingRecorder/Recordings")
