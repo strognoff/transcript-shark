@@ -2,39 +2,30 @@
 //  RecordingSession.swift
 //  MeetingRecorder
 //
-//  Immutable value type representing one recording session.
-//  Created when a session starts, passed to TranscriptionQueue on stop.
+//  Immutable Sendable value type representing one recording session.
+//  Explicitly nonisolated throughout so it can be used from any actor context.
 //
 
 import Foundation
 
 struct RecordingSession: Sendable {
 
-    /// Unique identifier for this session.
     let id: UUID
-
-    /// When capture began.
     let startedAt: Date
-
-    /// When capture ended — set on stop.
     let endedAt: Date?
-
-    /// The captured audio/video file produced by SCRecordingOutput.
     let outputURL: URL
-
-    /// The application that triggered the recording (manual or detected).
     let meetingApplication: String
 
     // MARK: - Computed
 
-    var duration: TimeInterval? {
+    nonisolated var duration: TimeInterval? {
         guard let endedAt else { return nil }
         return endedAt.timeIntervalSince(startedAt)
     }
 
     // MARK: - Init
 
-    init(
+    nonisolated init(
         id: UUID = UUID(),
         startedAt: Date = Date(),
         endedAt: Date? = nil,
@@ -48,8 +39,7 @@ struct RecordingSession: Sendable {
         self.meetingApplication = meetingApplication
     }
 
-    /// Returns a copy of the session with endedAt set to now.
-    func finished(at date: Date = Date()) -> RecordingSession {
+    nonisolated func finished(at date: Date = Date()) -> RecordingSession {
         RecordingSession(
             id: id,
             startedAt: startedAt,
