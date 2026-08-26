@@ -71,7 +71,12 @@ struct LibraryView: View {
         }
         .onChange(of: appState.recorderState) { _, newState in
             if case .finished = newState {
-                Task { await reloadAndSync() }
+                Task {
+                    // SCRecordingOutput needs a moment to flush the MP4 after
+                    // stopCapture() returns — wait 1s before scanning disk
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    await reloadAndSync()
+                }
             }
         }
         // Poll every 2s while transcription is active, refresh selected meeting when done
