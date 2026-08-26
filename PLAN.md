@@ -321,7 +321,15 @@ enum TranscriptionStatus {
 
 ---
 
-### Milestone 6 — Persistence
+### Milestone 6 — Persistence ✅ COMPLETE
+
+**Completed:** 2026-08-26 — Build 35
+
+**Technical notes:**
+- SwiftData `@Model` cannot store `URL` natively — store as `String` (relative path), resolve at read time
+- `TranscriptionStatus` extensions need `nonisolated` to be callable from `@Model` context
+- `PersistenceController` auto-recovers from schema conflicts in development by deleting and recreating the store
+- First-launch migration: `importNewRecordingsFromDisk()` runs on every `reload()` and inserts any `.mp4` not yet in the database
 
 **Goal:** All data survives app restart.
 
