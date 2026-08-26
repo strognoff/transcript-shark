@@ -33,7 +33,6 @@ struct MeetingDetailView: View {
             .padding(24)
         }
         .navigationTitle(meeting.title)
-        .searchable(text: $searchText, prompt: "Search transcript")
         .toolbar { toolbarItems }
         .onAppear {
             player.load(url: meeting.recordingURL)
@@ -193,6 +192,12 @@ struct MeetingDetailView: View {
             HStack {
                 Text("Transcript")
                     .font(.headline)
+
+                // Inline search — avoids .searchable toolbar conflict with MeetingListView
+                TextField("Search transcript…", text: $searchText)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 200)
+
                 Spacer()
 
                 switch meeting.transcriptionStatus {
