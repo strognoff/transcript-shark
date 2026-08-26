@@ -2,13 +2,14 @@
 //  MeetingRepository.swift
 //  MeetingRecorder
 //
-//  Scans the Recordings directory on disk and builds an in-memory list of
-//  Meeting objects. Milestone 6 will replace this with SwiftData queries.
+//  SwiftData-backed repository for meetings.
+//  On first launch, imports existing .mp4 files from the Recordings directory.
 //
 
 import Foundation
-import Observation
+import SwiftData
 import AVFoundation
+import Observation
 import OSLog
 
 private let logger = Logger(subsystem: "com.transcript-shark.MeetingRecorder", category: "MeetingRepository")
@@ -19,15 +20,12 @@ final class MeetingRepository {
 
     private(set) var meetings: [Meeting] = []
 
-    private let recordingsDir: URL
+    private let context: ModelContext
+    private let baseURL: URL
 
-    init() {
-        let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        ).first!
-        recordingsDir = appSupport
-            .appendingPathComponent("MeetingRecorder")
-            .appendingPathComponent("Recordings")
+    init(context: ModelContext = PersistenceController.shared.container.mainContext) {
+        self.context = context
+        self.baseURL = PersistenceController.baseURL
     }
 
     // MARK: - Load
@@ -37,62 +35,118 @@ final class MeetingRepository {
     }
 
     func reload() async {
-        let dir = recordingsDir
-        // Scan file metadata on a background thread (synchronous, no async)
-        let infos: [(url: URL, createdAt: Date, transcriptURL: URL?)] = await Task.detached(priority: .userInitiated) {
-            Self.scanMetadata(in: dir)
-        }.value
+        // Import any new recordings from disk not yet in the database
+        await importNewRecordingsFromDisk()
 
-        // Load durations on the main actor — each in its own isolated call
-        var loaded: [Meeting] = []
-        for info in infos {
-            let duration = await Self.loadDuration(url: info.url)
-            let nameUUID = info.url.deletingPathExtension().lastPathComponent
-                .replacingOccurrences(of: "recording_", with: "")
-            let id = UUID(uuidString: nameUUID) ?? UUID()
-            let meeting = Meeting(
-                id: id,
-                title: Self.formattedTitle(from: info.createdAt),
-                startedAt: info.createdAt,
-                endedAt: duration > 0 ? info.createdAt.addingTimeInterval(duration) : nil,
-                meetingApplication: "Manual",
-                recordingURL: info.url,
-                transcriptURL: info.transcriptURL,
-                transcriptionStatus: info.transcriptURL != nil ? .completed : .pending
-            )
-            loaded.append(meeting)
+        // Fetch all records, sorted newest-first
+        let descriptor = FetchDescriptor<MeetingRecord>(
+            sortBy: [SortDescriptor(\.startedAt, order: .reverse)]
+        )
+        do {
+            let records = try context.fetch(descriptor)
+            meetings = records.map { $0.toMeeting(baseURL: baseURL) }
+            logger.info("MeetingRepository: loaded \(records.count) meetings")
+        } catch {
+            logger.error("MeetingRepository: fetch failed — \(error.localizedDescription)")
         }
-
-        meetings = loaded.sorted { $0.startedAt > $1.startedAt }
-        logger.info("MeetingRepository: loaded \(loaded.count) meetings")
     }
 
-    private static func loadDuration(url: URL) async -> TimeInterval {
-        // Create a fresh asset for each file — do NOT reuse across calls
-        let asset = AVURLAsset(url: url)
-        guard let duration = try? await asset.load(.duration),
-              duration.isValid, !duration.isIndefinite else { return 0 }
-        return duration.seconds
+    // MARK: - Import from disk (migration / first-launch)
+
+    private func importNewRecordingsFromDisk() async {
+        let recordingsDir = baseURL.appendingPathComponent("Recordings")
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: recordingsDir,
+            includingPropertiesForKeys: [.creationDateKey],
+            options: .skipsHiddenFiles
+        ) else { return }
+
+        let mp4Files = files.filter { $0.pathExtension == "mp4" }
+
+        for file in mp4Files {
+            let nameUUID = file.deletingPathExtension().lastPathComponent
+                .replacingOccurrences(of: "recording_", with: "")
+            guard let id = UUID(uuidString: nameUUID) else { continue }
+
+            // Skip if already in database
+            let existing = try? context.fetch(
+                FetchDescriptor<MeetingRecord>(
+                    predicate: #Predicate { $0.id == id }
+                )
+            )
+            if (existing?.isEmpty == false) { continue }
+
+            // Load duration
+            let duration = await Self.loadDuration(url: file)
+            let attrs = try? FileManager.default.attributesOfItem(atPath: file.path)
+            let createdAt = attrs?[.creationDate] as? Date ?? Date()
+
+            // Check for transcript
+            let transcriptFile = file.deletingLastPathComponent()
+                .appendingPathComponent(file.deletingPathExtension().lastPathComponent + "_transcript.md")
+            let hasTranscript = FileManager.default.fileExists(atPath: transcriptFile.path)
+
+            // Store path relative to baseURL
+            let relativeRecording = file.path.replacingOccurrences(of: baseURL.path + "/", with: "")
+            let relativeTranscript = hasTranscript
+                ? transcriptFile.path.replacingOccurrences(of: baseURL.path + "/", with: "")
+                : nil
+
+            let record = MeetingRecord(
+                id: id,
+                title: Self.formattedTitle(from: createdAt),
+                startedAt: createdAt,
+                endedAt: duration > 0 ? createdAt.addingTimeInterval(duration) : nil,
+                recordingPath: relativeRecording,
+                transcriptPath: relativeTranscript,
+                transcriptionStatusRaw: hasTranscript ? "completed" : "pending"
+            )
+            context.insert(record)
+            logger.info("MeetingRepository: imported \(file.lastPathComponent)")
+        }
+
+        try? context.save()
     }
 
     // MARK: - Mutations
 
     func delete(_ meeting: Meeting) {
         // Remove files from disk
-        let dir = meeting.recordingURL.deletingLastPathComponent()
         try? FileManager.default.removeItem(at: meeting.recordingURL)
         if let t = meeting.transcriptURL { try? FileManager.default.removeItem(at: t) }
-        // Remove the folder if now empty
-        let remaining = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
-        if remaining.isEmpty { try? FileManager.default.removeItem(at: dir) }
+
+        // Remove from database
+        if let record = fetchRecord(id: meeting.id) {
+            context.delete(record)
+            try? context.save()
+        }
 
         meetings.removeAll { $0.id == meeting.id }
         logger.info("MeetingRepository: deleted \(meeting.id)")
     }
 
+    func updateTitle(_ meeting: Meeting, title: String) {
+        guard let record = fetchRecord(id: meeting.id) else { return }
+        record.title = title
+        record.updatedAt = Date()
+        try? context.save()
+        if let idx = meetings.firstIndex(where: { $0.id == meeting.id }) {
+            meetings[idx].title = title
+        }
+    }
+
     func retryTranscription(_ meeting: Meeting) async {
-        guard let idx = meetings.firstIndex(where: { $0.id == meeting.id }) else { return }
-        meetings[idx].transcriptionStatus = .pending
+        // Update status in DB
+        if let record = fetchRecord(id: meeting.id) {
+            record.transcriptionStatusRaw = "pending"
+            record.updatedAt = Date()
+            try? context.save()
+        }
+
+        if let idx = meetings.firstIndex(where: { $0.id == meeting.id }) {
+            meetings[idx].transcriptionStatus = .pending
+        }
+
         let session = RecordingSession(
             id: meeting.id,
             startedAt: meeting.startedAt,
@@ -103,16 +157,35 @@ final class MeetingRepository {
         await TranscriptionQueue.shared.enqueue(session)
     }
 
-    // MARK: - Filtering
+    // MARK: - Update after transcription completes
+
+    func refreshTranscriptionStatus(for sessionID: UUID) {
+        guard let record = fetchRecord(id: sessionID) else { return }
+
+        // Check if transcript file now exists on disk
+        let recordingURL = baseURL.appendingPathComponent(record.recordingPath)
+        let transcriptFile = recordingURL.deletingLastPathComponent()
+            .appendingPathComponent(recordingURL.deletingPathExtension().lastPathComponent + "_transcript.md")
+
+        if FileManager.default.fileExists(atPath: transcriptFile.path) {
+            let relPath = transcriptFile.path.replacingOccurrences(of: baseURL.path + "/", with: "")
+            record.transcriptPath = relPath
+            record.transcriptionStatusRaw = "completed"
+        } else {
+            record.transcriptionStatusRaw = "failed:"
+        }
+        record.updatedAt = Date()
+        try? context.save()
+    }
+
+    // MARK: - Filtering & Grouping
 
     func filtered(by filter: SidebarFilter) -> [Meeting] {
         let cal = Calendar.current
         let now = Date()
         switch filter {
-        case .allMeetings:
-            return meetings
-        case .today:
-            return meetings.filter { cal.isDateInToday($0.startedAt) }
+        case .allMeetings: return meetings
+        case .today:       return meetings.filter { cal.isDateInToday($0.startedAt) }
         case .thisWeek:
             let weekAgo = cal.date(byAdding: .day, value: -7, to: now)!
             return meetings.filter { $0.startedAt >= weekAgo }
@@ -123,8 +196,7 @@ final class MeetingRepository {
         let list = filtered(by: filter)
         let cal = Calendar.current
         let now = Date()
-
-        var groups: [(label: String, date: Date, meetings: [Meeting])] = []
+        var groups: [(label: String, meetings: [Meeting])] = []
         var seen: [String: Int] = [:]
 
         for meeting in list {
@@ -134,48 +206,35 @@ final class MeetingRepository {
             } else if cal.isDateInYesterday(meeting.startedAt) {
                 label = "Yesterday"
             } else if meeting.startedAt >= cal.date(byAdding: .day, value: -7, to: now)! {
-                let fmt = DateFormatter()
-                fmt.dateFormat = "EEEE"
-                label = fmt.string(from: meeting.startedAt)
+                let f = DateFormatter(); f.dateFormat = "EEEE"
+                label = f.string(from: meeting.startedAt)
             } else {
-                let fmt = DateFormatter()
-                fmt.dateStyle = .long
-                fmt.timeStyle = .none
-                label = fmt.string(from: meeting.startedAt)
+                let f = DateFormatter(); f.dateStyle = .long; f.timeStyle = .none
+                label = f.string(from: meeting.startedAt)
             }
 
             if let idx = seen[label] {
                 groups[idx].meetings.append(meeting)
             } else {
                 seen[label] = groups.count
-                groups.append((label: label, date: meeting.startedAt, meetings: [meeting]))
+                groups.append((label: label, meetings: [meeting]))
             }
         }
-
         return groups.map { MeetingDateGroup(id: $0.label, label: $0.label, meetings: $0.meetings) }
     }
 
-    // MARK: - Disk scan (synchronous — no AVFoundation)
+    // MARK: - Private helpers
 
-    private nonisolated static func scanMetadata(
-        in dir: URL
-    ) -> [(url: URL, createdAt: Date, transcriptURL: URL?)] {
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: dir,
-            includingPropertiesForKeys: [.creationDateKey],
-            options: .skipsHiddenFiles
-        ) else { return [] }
+    private func fetchRecord(id: UUID) -> MeetingRecord? {
+        try? context.fetch(
+            FetchDescriptor<MeetingRecord>(predicate: #Predicate { $0.id == id })
+        ).first
+    }
 
-        return contents.compactMap { item in
-            guard item.pathExtension == "mp4" else { return nil }
-            let attrs = try? FileManager.default.attributesOfItem(atPath: item.path)
-            let createdAt = attrs?[.creationDate] as? Date ?? Date()
-            let transcriptURL = item.deletingLastPathComponent()
-                .appendingPathComponent(item.deletingPathExtension().lastPathComponent + "_transcript.md")
-            let resolvedTranscript: URL? = FileManager.default.fileExists(atPath: transcriptURL.path)
-                ? transcriptURL : nil
-            return (url: item, createdAt: createdAt, transcriptURL: resolvedTranscript)
-        }
+    private static func loadDuration(url: URL) async -> TimeInterval {
+        let asset = AVURLAsset(url: url)
+        guard let d = try? await asset.load(.duration), d.isValid, !d.isIndefinite else { return 0 }
+        return d.seconds
     }
 
     private static func formattedTitle(from date: Date) -> String {
