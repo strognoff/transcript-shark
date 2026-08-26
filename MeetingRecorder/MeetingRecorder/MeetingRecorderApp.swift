@@ -9,6 +9,7 @@
 
 import SwiftUI
 import AppKit
+import OSLog
 
 @main
 struct MeetingRecorderApp: App {
@@ -31,6 +32,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
+        // Listen for show-window requests from MenuBarManager
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(showMainWindow),
+            name: .showMainWindow,
+            object: nil
+        )
+
         // Create the main window controller (does not show yet)
         windowController = MainWindowController()
 
@@ -52,9 +61,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Called by MenuBarManager — always works regardless of window state.
     @objc func showMainWindow() {
+        guard let window = windowController?.window else { return }
+        // For .accessory policy apps, orderFrontRegardless is required —
+        // makeKeyAndOrderFront alone does nothing when the app has no Dock icon.
+        window.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
-        windowController?.showWindow(nil)
-        windowController?.window?.makeKeyAndOrderFront(nil)
     }
 }
 
@@ -88,7 +99,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     // Closing hides the window rather than destroying it
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        let log = Logger(subsystem: "com.transcript-shark.MeetingRecorder", category: "MainWindowController")
+        log.info("windowShouldClose called — hiding window")
         sender.orderOut(nil)
         return false   // prevent deallocation
     }
+}
+
+// MARK: - Notification names
+
+extension Notification.Name {
+    static let showMainWindow = Notification.Name("com.transcript-shark.showMainWindow")
 }

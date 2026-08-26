@@ -216,8 +216,7 @@ final class MenuBarManager {
     }
 
     @objc private func openApp() {
-        // Delegate to AppDelegate which tracks the main window lifecycle
-        (NSApp.delegate as? AppDelegate)?.showMainWindow()
+        NotificationCenter.default.post(name: .showMainWindow, object: nil)
     }
 
     @objc private func openSettings() {
