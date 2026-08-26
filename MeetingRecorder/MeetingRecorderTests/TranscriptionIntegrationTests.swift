@@ -10,6 +10,7 @@ import Testing
 import Foundation
 @testable import MeetingRecorder
 
+@MainActor
 struct TranscriptionIntegrationTests {
 
     @Test("Transcribe most recent recording", .timeLimit(.minutes(5)))
