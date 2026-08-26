@@ -76,25 +76,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     init() {
-        // Build the window in code — no XIB needed
+        // defer: true prevents the window from triggering layout before contentView is set
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 320),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
-            defer: false
+            defer: true
         )
         window.title = "Meeting Recorder"
-        window.center()
-        window.setFrameAutosaveName("MainWindow")
         window.isReleasedWhenClosed = false   // ← key: keeps window alive after close
 
-        // Embed the SwiftUI ContentView
-        let contentView = ContentView()
-            .environmentObject(AppState.shared)
-        window.contentView = NSHostingView(rootView: contentView)
-
         super.init(window: window)
+
+        // Set contentView AFTER super.init so AppKit's window is fully initialised
+        // before SwiftUI triggers its first layout pass — prevents the
+        // "not legal to call -layoutSubtreeIfNeeded" warning.
+        window.contentView = NSHostingView(rootView:
+            ContentView().environmentObject(AppState.shared)
+        )
         window.delegate = self
+        window.center()
+        window.setFrameAutosaveName("MainWindow")
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
