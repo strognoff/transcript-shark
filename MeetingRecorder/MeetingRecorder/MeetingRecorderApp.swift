@@ -2,29 +2,22 @@
 //  MeetingRecorderApp.swift
 //  MeetingRecorder
 //
-//  Menu bar application entry point.
-//  - No Dock icon (LSUIElement in Info.plist)
-//  - Closing the main window does NOT quit the app
-//  - AppState is shared between menu bar and main window via environment
+//  Menu bar application. The main window is managed entirely by AppDelegate
+//  via NSWindowController so it can be reliably recreated after being closed.
+//  SwiftUI WindowGroup is NOT used — it cannot reopen a window once closed.
 //
 
 import SwiftUI
+import AppKit
 
 @main
 struct MeetingRecorderApp: App {
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
+    // No WindowGroup — AppDelegate creates and manages the window directly.
     var body: some Scene {
-        WindowGroup {
-            ContentView()
-                .environmentObject(AppState.shared)
-        }
-        .windowResizability(.contentSize)
-        // Prevent app from quitting when the last window closes
-        .commands {
-            CommandGroup(replacing: .appInfo) { }
-        }
+        Settings { EmptyView() }   // keeps @main happy; no real settings scene yet
     }
 }
 
@@ -33,42 +26,19 @@ struct MeetingRecorderApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var menuBarManager: MenuBarManager?
-    private weak var mainWindow: NSWindow?
+    private var windowController: MainWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Hide from Dock at runtime (belt + suspenders alongside LSUIElement)
         NSApp.setActivationPolicy(.accessory)
 
-        // Track the main window as soon as it appears
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleWindowBecameKey(_:)),
-            name: NSWindow.didBecomeKeyNotification,
-            object: nil
-        )
+        // Create the main window controller (does not show yet)
+        windowController = MainWindowController()
 
-        // Create menu bar manager — must happen after app finishes launching
+        // Create the menu bar
         menuBarManager = MenuBarManager(appState: AppState.shared)
-    }
 
-    @objc private func handleWindowBecameKey(_ notification: Notification) {
-        if let window = notification.object as? NSWindow, window.canBecomeMain {
-            mainWindow = window
-        }
-    }
-
-    // Called by MenuBarManager.openApp() via notification
-    @objc func showMainWindow() {
-        NSApp.activate(ignoringOtherApps: true)
-        if let window = mainWindow {
-            window.makeKeyAndOrderFront(nil)
-        } else {
-            // Window was fully deallocated — ask SwiftUI to recreate it
-            NSApp.sendAction(#selector(NSDocument.makeWindowControllers), to: nil, from: nil)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
-            }
-        }
+        // Show the window on first launch
+        showMainWindow()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
@@ -78,5 +48,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
+    }
+
+    /// Called by MenuBarManager — always works regardless of window state.
+    @objc func showMainWindow() {
+        NSApp.activate(ignoringOtherApps: true)
+        windowController?.showWindow(nil)
+        windowController?.window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+// MARK: - Main Window Controller
+
+final class MainWindowController: NSWindowController, NSWindowDelegate {
+
+    init() {
+        // Build the window in code — no XIB needed
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 320),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Meeting Recorder"
+        window.center()
+        window.setFrameAutosaveName("MainWindow")
+        window.isReleasedWhenClosed = false   // ← key: keeps window alive after close
+
+        // Embed the SwiftUI ContentView
+        let contentView = ContentView()
+            .environmentObject(AppState.shared)
+        window.contentView = NSHostingView(rootView: contentView)
+
+        super.init(window: window)
+        window.delegate = self
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    // Closing hides the window rather than destroying it
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        sender.orderOut(nil)
+        return false   // prevent deallocation
     }
 }
