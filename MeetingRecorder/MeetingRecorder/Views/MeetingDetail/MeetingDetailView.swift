@@ -186,11 +186,15 @@ struct MeetingDetailView: View {
                     Button("Transcribe") { onRetry(meeting) }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
+                case .completed:
+                    Button("Re-transcribe") { onRetry(meeting) }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
                 case .failed:
                     Button("Retry") { onRetry(meeting) }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
-                default:
+                case .processing:
                     EmptyView()
                 }
 
