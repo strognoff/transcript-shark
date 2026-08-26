@@ -57,6 +57,9 @@ struct LibraryView: View {
         .onAppear {
             Task { await reloadAndSync() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .transcriptionJobCompleted)) { _ in
+            Task { await reloadAndSync() }
+        }
         .onChange(of: appState.recorderState) { _, newState in
             if case .finished = newState {
                 Task { await reloadAndSync() }

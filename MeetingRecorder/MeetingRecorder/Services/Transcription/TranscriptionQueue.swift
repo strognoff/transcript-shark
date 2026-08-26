@@ -11,6 +11,10 @@ import UserNotifications
 import Speech
 import OSLog
 
+extension Notification.Name {
+    nonisolated(unsafe) static let transcriptionJobCompleted = Notification.Name("com.transcript-shark.transcriptionJobCompleted")
+}
+
 // MARK: - Job
 
 struct TranscriptionJob: Sendable {
@@ -115,6 +119,7 @@ actor TranscriptionQueue {
             jobs[id] = job
 
             logger.info("TranscriptionQueue: completed \(id) → \(transcriptURL.lastPathComponent)")
+            NotificationCenter.default.post(name: .transcriptionJobCompleted, object: nil)
             await sendNotification(title: "Transcript ready", body: job.session.outputURL.deletingLastPathComponent().lastPathComponent)
 
         } catch {
@@ -123,6 +128,7 @@ actor TranscriptionQueue {
             job.errorMessage = message
             jobs[id] = job
             logger.error("TranscriptionQueue: failed \(id) — \(message)")
+            NotificationCenter.default.post(name: .transcriptionJobCompleted, object: nil)
             await sendNotification(title: "Transcription failed", body: message)
         }
 
