@@ -179,7 +179,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
             backing: .buffered,
             defer: true
         )
-        window.title = "Meeting Recorder"
+        window.title = "Transcript Shark"
         window.isReleasedWhenClosed = false   // ← key: keeps window alive after close
 
         super.init(window: window)

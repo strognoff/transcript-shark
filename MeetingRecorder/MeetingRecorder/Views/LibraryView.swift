@@ -52,7 +52,14 @@ struct LibraryView: View {
         } content: {
             MeetingListView(
                 groups: filteredGroups,
-                selection: $selectedMeeting
+                selection: $selectedMeeting,
+                onDelete: { meetings in
+                    for m in meetings {
+                        repo.delete(m)
+                    }
+                    selectedMeeting = nil
+                    Task { await reloadAndSync() }
+                }
             )
             .navigationSplitViewColumnWidth(min: 220, ideal: 260)
             .searchable(text: $searchText, placement: .toolbar, prompt: "Search meetings")
@@ -115,11 +122,12 @@ struct LibraryView: View {
             }
         }
         .onChange(of: appState.recorderState) { _, newState in
-            if case .finished = newState {
+            if case .finished(let session) = newState {
                 Task {
-                    // SCRecordingOutput needs a moment to flush the MP4 after
-                    // stopCapture() returns — wait 1s before scanning disk
-                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    // Save the session immediately with accurate endedAt from the coordinator,
+                    // then wait for SCRecordingOutput to flush the MP4 before a full reload.
+                    await repo.saveSession(session)
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
                     await reloadAndSync()
                 }
             }

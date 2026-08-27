@@ -30,6 +30,13 @@ final class AudioCapture: NSObject, AudioCaptureService {
     // Accessed from nonisolated SCStreamOutput callback — SidecarRecorder is internally thread-safe
     nonisolated(unsafe) private(set) var sidecarRecorder: SidecarRecorder?
 
+    // Dedicated queue for sidecar audio writes — keeps main thread free and prevents
+    // buffer drops at high sample rates (48 kHz delivers hundreds of callbacks/second).
+    private let sidecarQueue = DispatchQueue(
+        label: "com.transcript-shark.MeetingRecorder.sidecarAudio",
+        qos: .userInitiated
+    )
+
     init(outputURL: URL) {
         self.outputURL = outputURL
         super.init()
@@ -77,9 +84,9 @@ final class AudioCapture: NSObject, AudioCaptureService {
 
         do {
             try stream.addRecordingOutput(recOut)
-            try stream.addStreamOutput(self, type: .audio,      sampleHandlerQueue: DispatchQueue.main)
+            try stream.addStreamOutput(self, type: .audio,      sampleHandlerQueue: sidecarQueue)
             try stream.addStreamOutput(self, type: .screen,     sampleHandlerQueue: DispatchQueue.main)
-            try stream.addStreamOutput(self, type: .microphone, sampleHandlerQueue: DispatchQueue.main)
+            try stream.addStreamOutput(self, type: .microphone, sampleHandlerQueue: sidecarQueue)
             logger.info("AudioCapture: stream outputs added (system audio + microphone)")
         } catch {
             logger.error("AudioCapture: failed to configure stream — \(error.localizedDescription)")

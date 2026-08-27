@@ -27,6 +27,7 @@ struct SummaryPanelView: View {
     let recordingURL: URL
 
     @State private var state: SummaryState = .idle
+    @State private var summaryElapsed: TimeInterval = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -112,9 +113,25 @@ struct SummaryPanelView: View {
             Text("Thinking…")
                 .font(.callout)
                 .foregroundStyle(.secondary)
+            Text(elapsedLabel(summaryElapsed))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 60)
+        .task {
+            summaryElapsed = 0
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                summaryElapsed += 1
+            }
+        }
+    }
+
+    private func elapsedLabel(_ elapsed: TimeInterval) -> String {
+        let s = Int(elapsed)
+        if s < 60 { return "\(s)s" }
+        return "\(s / 60)m \(s % 60)s"
     }
 
     private func doneView(summary: String) -> some View {

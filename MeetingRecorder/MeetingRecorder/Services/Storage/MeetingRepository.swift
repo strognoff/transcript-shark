@@ -108,6 +108,44 @@ final class MeetingRepository {
         try? context.save()
     }
 
+    /// Saves a completed recording session directly from the coordinator (with accurate endedAt).
+    /// Enqueues transcription automatically only when the "Auto-transcribe after recording"
+    /// setting is enabled. Skips if already in the database.
+    func saveSession(_ session: RecordingSession) async {
+        // Skip if already imported (e.g. by importNewRecordingsFromDisk)
+        let sessionID = session.id
+        let existing = try? context.fetch(
+            FetchDescriptor<MeetingRecord>(
+                predicate: #Predicate { $0.id == sessionID }
+            )
+        )
+        if existing?.isEmpty == false { return }
+
+        let relativeRecording = session.outputURL.path
+            .replacingOccurrences(of: baseURL.path + "/", with: "")
+
+        let record = MeetingRecord(
+            id: session.id,
+            title: Self.formattedTitle(from: session.startedAt),
+            startedAt: session.startedAt,
+            endedAt: session.endedAt,
+            recordingPath: relativeRecording,
+            transcriptionStatusRaw: "pending"
+        )
+        context.insert(record)
+        try? context.save()
+        logger.info("MeetingRepository: saved session \(session.id) endedAt=\(session.endedAt?.description ?? "nil")")
+
+        await reload()
+
+        // Respect the "Auto-transcribe after recording" setting
+        if UserDefaults.standard.bool(forKey: "autoTranscribe") {
+            await TranscriptionQueue.shared.enqueue(session)
+        } else {
+            logger.info("MeetingRepository: auto-transcribe disabled — skipping enqueue for \(session.id)")
+        }
+    }
+
     // MARK: - Mutations
 
     func delete(_ meeting: Meeting) {

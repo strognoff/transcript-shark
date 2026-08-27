@@ -21,6 +21,9 @@ struct MeetingDetailView: View {
     @State private var searchText = ""
     @State private var transcriptContent: String = ""
     @State private var showFolderPicker = false
+    @State private var transcriptionProgress: Double = 0
+    @State private var transcriptionProgressLabel: String = "Transcribing…"
+    @State private var isTranscribing: Bool = false
 
     var body: some View {
         ScrollView {
@@ -34,6 +37,26 @@ struct MeetingDetailView: View {
         }
         .navigationTitle(meeting.title)
         .toolbar { toolbarItems }
+        .task(id: meeting.id) {
+            while !Task.isCancelled {
+                let job = await TranscriptionQueue.shared.job(for: meeting.id)
+                if let job {
+                    if case .processing = job.status {
+                        isTranscribing = true
+                        transcriptionProgress = job.progress
+                        transcriptionProgressLabel = job.progressLabel.isEmpty ? "Transcribing…" : job.progressLabel
+                    } else {
+                        isTranscribing = false
+                    }
+                } else {
+                    // No job in queue — reset
+                    isTranscribing = false
+                    transcriptionProgress = 0
+                    transcriptionProgressLabel = "Transcribing…"
+                }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+        }
         .onAppear {
             player.load(url: meeting.recordingURL)
             loadTranscript()
@@ -200,21 +223,25 @@ struct MeetingDetailView: View {
 
                 Spacer()
 
-                switch meeting.transcriptionStatus {
-                case .pending:
-                    Button("Transcribe") { onRetry(meeting) }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                case .completed:
-                    Button("Re-transcribe") { onRetry(meeting) }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                case .failed:
-                    Button("Retry") { onRetry(meeting) }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                case .processing:
+                if isTranscribing {
                     EmptyView()
+                } else {
+                    switch meeting.transcriptionStatus {
+                    case .pending:
+                        Button("Transcribe") { onRetry(meeting) }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                    case .completed:
+                        Button("Re-transcribe") { onRetry(meeting) }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                    case .failed:
+                        Button("Retry") { onRetry(meeting) }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                    case .processing:
+                        EmptyView()
+                    }
                 }
 
                 Toggle(isOn: $showRawMarkdown) {
@@ -225,44 +252,61 @@ struct MeetingDetailView: View {
                 .controlSize(.small)
             }
 
-            switch meeting.transcriptionStatus {
-            case .pending:
-                Label("Press Transcribe to generate a transcript", systemImage: "waveform.and.mic")
-                    .foregroundStyle(.secondary)
-
-            case .processing:
-                HStack {
-                    ProgressView().scaleEffect(0.7)
-                    Text("Transcribing…")
-                        .foregroundStyle(.secondary)
-                }
-
-            case .failed(let msg):
-                VStack(alignment: .leading) {
-                    Label("Transcription failed", systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
-                    if !msg.isEmpty {
-                        Text(msg).font(.caption).foregroundStyle(.secondary)
+            if isTranscribing {
+                VStack(alignment: .leading, spacing: 8) {
+                    ProgressView(value: transcriptionProgress)
+                        .progressViewStyle(.linear)
+                    HStack {
+                        Text(transcriptionProgressLabel)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text("\(Int(transcriptionProgress * 100))%")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
                     }
                 }
-
-            case .completed:
-                if transcriptContent.isEmpty {
-                    Text("No transcript content found.")
+                .padding(.vertical, 4)
+            } else {
+                switch meeting.transcriptionStatus {
+                case .pending:
+                    Label("Press Transcribe to generate a transcript", systemImage: "waveform.and.mic")
                         .foregroundStyle(.secondary)
-                } else {
-                    let filtered = filteredTranscript
-                    if showRawMarkdown {
-                        ScrollView {
-                            Text(filtered)
-                                .font(.system(.body, design: .monospaced))
+
+                case .processing:
+                    // Covered by isTranscribing above; shown here as fallback
+                    HStack {
+                        ProgressView().scaleEffect(0.7)
+                        Text("Transcribing…").foregroundStyle(.secondary)
+                    }
+
+                case .failed(let msg):
+                    VStack(alignment: .leading) {
+                        Label("Transcription failed", systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                        if !msg.isEmpty {
+                            Text(msg).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+
+                case .completed:
+                    if transcriptContent.isEmpty {
+                        Text("No transcript content found.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        let filtered = filteredTranscript
+                        if showRawMarkdown {
+                            ScrollView {
+                                Text(filtered)
+                                    .font(.system(.body, design: .monospaced))
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        } else {
+                            Text(LocalizedStringKey(filtered))
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                    } else {
-                        Text(LocalizedStringKey(filtered))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
             }

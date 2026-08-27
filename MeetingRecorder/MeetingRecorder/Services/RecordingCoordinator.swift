@@ -64,7 +64,13 @@ final class RecordingCoordinator: ObservableObject {
     // MARK: - Start
 
     func startRecording(application: String = "Manual") async {
-        guard case .idle = recorderState else {
+        // Auto-reset from .finished / .failed so manual recordings don't get stuck
+        switch recorderState {
+        case .finished, .failed:
+            reset()
+        case .idle:
+            break
+        default:
             logger.warning("RecordingCoordinator: startRecording called while not idle — ignored")
             return
         }
@@ -72,11 +78,13 @@ final class RecordingCoordinator: ObservableObject {
         logger.info("RecordingCoordinator: starting")
 
         do {
-            let outputURL = try sessionURL()
+            // Use a single UUID for both the filename and the session ID
+            let sessionID = UUID()
+            let outputURL = try sessionURL(id: sessionID)
             let service = makeCaptureService(outputURL)
             captureService = service
 
-            let session = RecordingSession(outputURL: outputURL, meetingApplication: application)
+            let session = RecordingSession(id: sessionID, outputURL: outputURL, meetingApplication: application)
 
             try await service.start()
 
@@ -148,7 +156,7 @@ final class RecordingCoordinator: ObservableObject {
 
     // MARK: - Private helpers
 
-    private func sessionURL() throws -> URL {
+    private func sessionURL(id: UUID) throws -> URL {
         let appSupport = try FileManager.default.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
@@ -159,7 +167,7 @@ final class RecordingCoordinator: ObservableObject {
             .appendingPathComponent("MeetingRecorder")
             .appendingPathComponent("Recordings")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("recording_\(UUID().uuidString).mp4")
+        return dir.appendingPathComponent("recording_\(id.uuidString).mp4")
     }
 
     private func startTimer() {

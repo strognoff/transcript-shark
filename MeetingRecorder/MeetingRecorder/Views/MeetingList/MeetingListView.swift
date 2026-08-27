@@ -12,6 +12,10 @@ struct MeetingListView: View {
 
     let groups: [MeetingDateGroup]
     @Binding var selection: Meeting?
+    let onDelete: ([Meeting]) -> Void
+
+    @State private var isSelecting: Bool = false
+    @State private var multiSelection: Set<Meeting> = []
 
     var body: some View {
         Group {
@@ -22,23 +26,65 @@ struct MeetingListView: View {
                     description: Text("Recordings will appear here after you stop a meeting.")
                 )
             } else {
-                List(selection: $selection) {
-                    ForEach(groups) { group in
-                        Section(group.label) {
-                            ForEach(group.meetings) { meeting in
-                                MeetingRowView(meeting: meeting)
-                                    .tag(meeting)
-                                    .onDrag {
-                                        NSItemProvider(object: meeting.id.uuidString as NSString)
-                                    }
+                if isSelecting {
+                    List(selection: $multiSelection) {
+                        ForEach(groups) { group in
+                            Section(group.label) {
+                                ForEach(group.meetings) { meeting in
+                                    MeetingRowView(meeting: meeting).tag(meeting)
+                                }
                             }
                         }
                     }
+                    .listStyle(.inset)
+                } else {
+                    List(selection: $selection) {
+                        ForEach(groups) { group in
+                            Section(group.label) {
+                                ForEach(group.meetings) { meeting in
+                                    MeetingRowView(meeting: meeting)
+                                        .tag(meeting)
+                                        .onDrag {
+                                            NSItemProvider(object: meeting.id.uuidString as NSString)
+                                        }
+                                }
+                            }
+                        }
+                    }
+                    .listStyle(.inset)
                 }
-                .listStyle(.inset)
             }
         }
         .navigationTitle("Meetings")
+        .toolbar {
+            if isSelecting {
+                ToolbarItem(placement: .primaryAction) {
+                    Button(role: .destructive) {
+                        onDelete(Array(multiSelection))
+                        multiSelection = []
+                        isSelecting = false
+                    } label: {
+                        Label("Delete Selected", systemImage: "trash")
+                    }
+                    .disabled(multiSelection.isEmpty)
+                    .tint(.red)
+                }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        multiSelection = []
+                        isSelecting = false
+                    }
+                }
+            } else {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Select") {
+                        isSelecting = true
+                        selection = nil
+                    }
+                    .disabled(groups.isEmpty)
+                }
+            }
+        }
     }
 }
 

@@ -22,7 +22,9 @@ struct MarkdownGenerator: Sendable {
         let date        = dateFmt.string(from: session.startedAt)
         let started     = timeFmt.string(from: session.startedAt)
         let ended       = session.endedAt.map { timeFmt.string(from: $0) } ?? "-"
-        let durationSec = Int(result.duration)
+        // Prefer wall-clock session duration (from stored let properties); fall back to audio duration
+        let sessionDuration = session.endedAt.map { $0.timeIntervalSince(session.startedAt) }
+        let durationSec = Int(sessionDuration ?? result.duration)
         let shortID     = String(session.id.uuidString.prefix(18))
         let audioFile   = session.outputURL.lastPathComponent
         let app         = session.meetingApplication

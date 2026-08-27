@@ -7,6 +7,8 @@
 //
 
 import Foundation
+import AVFoundation
+import CoreMedia
 import UserNotifications
 import Speech
 import OSLog
@@ -23,6 +25,8 @@ struct TranscriptionJob: Sendable {
     let enqueuedAt: Date
     var transcriptURL: URL?
     var errorMessage: String?
+    var progress: Double = 0.0
+    var progressLabel: String = ""
 
     nonisolated init(session: RecordingSession) {
         self.session = session
@@ -88,6 +92,11 @@ actor TranscriptionQueue {
 
     func job(for id: UUID) -> TranscriptionJob? { jobs[id] }
 
+    func progress(for id: UUID) -> (value: Double, label: String) {
+        guard let job = jobs[id] else { return (0, "") }
+        return (job.progress, job.progressLabel)
+    }
+
     // MARK: - Processing
 
     private func processNextIfIdle() {
@@ -108,7 +117,7 @@ actor TranscriptionQueue {
         await requestSpeechPermissionIfNeeded()
 
         do {
-            let result = try await transcribeSpeakerAttributed(session: job.session)
+            let result = try await transcribeSpeakerAttributed(session: job.session, jobID: id)
             let transcriptURL = try generator.write(session: job.session, result: result)
 
             job.status = .completed
@@ -149,10 +158,15 @@ actor TranscriptionQueue {
 
     // MARK: - Speaker-attributed transcription
 
+    private func setProgress(_ id: UUID, value: Double, label: String) {
+        jobs[id]?.progress = value
+        jobs[id]?.progressLabel = label
+    }
+
     /// Transcribes the microphone and system audio sidecar files separately,
     /// then merges the results sorted by timestamp with speaker labels.
     /// Falls back to the combined recording (Speaker.unknown) if sidecars are absent.
-    private func transcribeSpeakerAttributed(session: RecordingSession) async throws -> TranscriptResult {
+    private func transcribeSpeakerAttributed(session: RecordingSession, jobID: UUID) async throws -> TranscriptResult {
         let base = session.outputURL.deletingPathExtension().lastPathComponent
         let dir  = session.outputURL.deletingLastPathComponent()
         let micURL    = dir.appendingPathComponent("\(base)_mic.caf")
@@ -164,20 +178,36 @@ actor TranscriptionQueue {
 
         guard micExists || systemExists else {
             logger.warning("TranscriptionQueue: no sidecar files found — falling back to combined audio")
-            return try await transcriber.transcribe(audioURL: session.outputURL, language: nil)
+            setProgress(jobID, value: 0.5, label: "Transcribing…")
+            let result = try await transcriber.transcribe(audioURL: session.outputURL, language: nil)
+            setProgress(jobID, value: 1.0, label: "Done")
+            return result
         }
 
         logger.info("TranscriptionQueue: transcribing with speaker attribution (mic=\(micExists), system=\(systemExists))")
 
-        // Transcribe each available sidecar concurrently
-        async let micResultTask: TranscriptResult? = micExists
-            ? (try? await transcriber.transcribe(audioURL: micURL, language: nil))
-            : nil
-        async let systemResultTask: TranscriptResult? = systemExists
-            ? (try? await transcriber.transcribe(audioURL: systemURL, language: nil))
-            : nil
+        // Transcribe sidecars sequentially — running both concurrently floods the Apple
+        // Speech server with up to 8 tasks at once (4 chunks × 2 tracks), which causes
+        // rate-limiting that silently returns empty results for the mic chunks.
+        setProgress(jobID, value: 0.0, label: "Transcribing mic…")
+        let micResult: TranscriptResult?
+        if micExists {
+            do { micResult = try await transcriber.transcribe(audioURL: micURL, language: nil) }
+            catch { logger.error("TranscriptionQueue: mic transcription failed — \(error.localizedDescription)"); micResult = nil }
+        } else {
+            micResult = nil
+        }
 
-        let (micResult, systemResult) = await (micResultTask, systemResultTask)
+        setProgress(jobID, value: 0.45, label: "Transcribing system audio…")
+        let systemResult: TranscriptResult?
+        if systemExists {
+            do { systemResult = try await transcriber.transcribe(audioURL: systemURL, language: nil) }
+            catch { logger.error("TranscriptionQueue: system transcription failed — \(error.localizedDescription)"); systemResult = nil }
+        } else {
+            systemResult = nil
+        }
+
+        setProgress(jobID, value: 0.85, label: "Finishing up…")
 
         // Tag and collect all segments
         var all: [TranscriptSegment] = []
@@ -208,11 +238,10 @@ actor TranscriptionQueue {
         all.sort { $0.startTime < $1.startTime }
 
         let fullText = all.map(\.text).joined(separator: " ")
-        let duration = (micResult?.duration ?? 0 > systemResult?.duration ?? 0)
-            ? micResult!.duration
-            : (systemResult?.duration ?? 0)
+        let duration = max(micResult?.duration ?? 0, systemResult?.duration ?? 0)
         let language = micResult?.detectedLanguage ?? systemResult?.detectedLanguage
 
+        setProgress(jobID, value: 1.0, label: "Done")
         return TranscriptResult(text: fullText, segments: all, detectedLanguage: language, duration: duration)
     }
 

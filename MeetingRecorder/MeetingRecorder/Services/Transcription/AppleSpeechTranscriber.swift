@@ -5,9 +5,16 @@
 //  Concrete TranscriptionService using Apple's SFSpeechRecognizer.
 //
 //  SFSpeechRecognizer has a hard ~1 minute limit per recognition request.
-//  For files longer than 55 seconds, the audio is split into overlapping
-//  55-second chunks using AVAssetExportSession, each chunk transcribed
-//  separately, then results are stitched back together with correct timestamps.
+//  For files longer than 55 seconds the audio is split into 55-second chunks,
+//  each transcribed separately, then stitched back with correct timestamps.
+//
+//  Raw PCM .caf sidecars use SFSpeechAudioBufferRecognitionRequest — frames are
+//  fed directly from AVAudioFile without touching the hardware audio queue.
+//  This avoids the device-contention failure ("No speech detected") that occurs
+//  when mic and system tracks are recognised concurrently via URL requests.
+//
+//  Compressed files (.mp4, .m4a) use SFSpeechURLRecognitionRequest via
+//  AVAssetExportSession as before.
 //
 
 import Speech
@@ -37,12 +44,10 @@ struct AppleSpeechTranscriber: TranscriptionService {
         let duration = try await audioDuration(url: audioURL)
         logger.info("AppleSpeechTranscriber: duration \(String(format: "%.1f", duration))s")
 
-        // For short files, transcribe directly
         if duration <= kChunkDuration {
             return try await transcribeSingle(url: audioURL, recogniser: recogniser, offset: 0, duration: duration)
         }
 
-        // For long files, chunk into 55s segments
         logger.info("AppleSpeechTranscriber: chunking into \(Int(ceil(duration / kChunkDuration))) segments")
         return try await transcribeChunked(url: audioURL, recogniser: recogniser, totalDuration: duration)
     }
@@ -55,12 +60,20 @@ struct AppleSpeechTranscriber: TranscriptionService {
         offset: TimeInterval,
         duration: TimeInterval
     ) async throws -> TranscriptResult {
-        let request = SFSpeechURLRecognitionRequest(url: url)
-        request.shouldReportPartialResults = false
-        // Don't force on-device — it cuts off at ~1min even for short files on some macOS versions
-        // request.requiresOnDeviceRecognition = recogniser.supportsOnDeviceRecognition
-
-        let (text, segments) = try await recognise(request: request, recogniser: recogniser, timeOffset: offset)
+        let (text, segments): (String, [TranscriptSegment])
+        if url.pathExtension.lowercased() == "caf" {
+            let sr = try fileSampleRate(url: url)
+            (text, segments) = try await recogniseBuffered(
+                url: url, recogniser: recogniser,
+                startFrame: 0,
+                frameCount: AVAudioFrameCount(duration * sr),
+                timeOffset: offset
+            )
+        } else {
+            let request = SFSpeechURLRecognitionRequest(url: url)
+            request.shouldReportPartialResults = false
+            (text, segments) = try await recogniseURL(request: request, recogniser: recogniser, timeOffset: offset)
+        }
         return TranscriptResult(text: text, segments: segments, detectedLanguage: recogniser.locale.identifier, duration: duration)
     }
 
@@ -73,33 +86,51 @@ struct AppleSpeechTranscriber: TranscriptionService {
     ) async throws -> TranscriptResult {
         var allSegments: [TranscriptSegment] = []
         var allText: [String] = []
+        let isCaf = url.pathExtension.lowercased() == "caf"
+
+        // Resolve sample rate once for buffer-based path
+        let sr: Double = isCaf ? (try fileSampleRate(url: url)) : 0
 
         var offset: TimeInterval = 0
-        let tempDir = FileManager.default.temporaryDirectory
 
         while offset < totalDuration {
             let chunkDuration = min(kChunkDuration, totalDuration - offset)
-            let chunkURL = tempDir.appendingPathComponent("chunk_\(Int(offset)).m4a")
+            logger.info("AppleSpeechTranscriber: processing chunk at \(String(format: "%.1f", offset))s–\(String(format: "%.1f", offset + chunkDuration))s")
 
-            logger.info("AppleSpeechTranscriber: exporting chunk at \(String(format: "%.1f", offset))s–\(String(format: "%.1f", offset + chunkDuration))s")
+            do {
+                let (text, segments): (String, [TranscriptSegment])
 
-            try await exportChunk(from: url, to: chunkURL, start: offset, duration: chunkDuration)
+                if isCaf {
+                    // Feed PCM buffers directly — no hardware audio queue involved
+                    let startFrame = AVAudioFramePosition(offset * sr)
+                    let frameCount = AVAudioFrameCount(chunkDuration * sr)
+                    (text, segments) = try await recogniseBuffered(
+                        url: url, recogniser: recogniser,
+                        startFrame: startFrame,
+                        frameCount: frameCount,
+                        timeOffset: offset
+                    )
+                } else {
+                    let chunkURL = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("chunk_\(Int(offset)).m4a")
+                    defer { try? FileManager.default.removeItem(at: chunkURL) }
+                    try await exportCompressedChunk(from: url, to: chunkURL, start: offset, duration: chunkDuration)
+                    let request = SFSpeechURLRecognitionRequest(url: chunkURL)
+                    request.shouldReportPartialResults = false
+                    (text, segments) = try await recogniseURL(request: request, recogniser: recogniser, timeOffset: offset)
+                }
 
-            let request = SFSpeechURLRecognitionRequest(url: chunkURL)
-            request.shouldReportPartialResults = false
-
-            let (text, segments) = try await recognise(request: request, recogniser: recogniser, timeOffset: offset)
-
-            if !text.isEmpty {
-                allText.append(text)
-                allSegments.append(contentsOf: segments)
-                logger.info("AppleSpeechTranscriber: chunk at \(String(format: "%.1f", offset))s — \(segments.count) segments")
-            } else {
-                logger.warning("AppleSpeechTranscriber: chunk at \(String(format: "%.1f", offset))s returned empty")
+                if !text.isEmpty {
+                    allText.append(text)
+                    allSegments.append(contentsOf: segments)
+                    logger.info("AppleSpeechTranscriber: chunk at \(String(format: "%.1f", offset))s — \(segments.count) segments")
+                } else {
+                    logger.warning("AppleSpeechTranscriber: chunk at \(String(format: "%.1f", offset))s returned empty")
+                }
+            } catch {
+                // Non-fatal: log and continue with remaining chunks
+                logger.error("AppleSpeechTranscriber: chunk at \(String(format: "%.1f", offset))s failed — \(error.localizedDescription)")
             }
-
-            // Clean up chunk file
-            try? FileManager.default.removeItem(at: chunkURL)
 
             offset += kChunkDuration
         }
@@ -114,9 +145,107 @@ struct AppleSpeechTranscriber: TranscriptionService {
         )
     }
 
-    // MARK: - Export a time range to a new file
+    // MARK: - Buffer-based recognition (CAF / raw PCM)
+    //
+    // Reads AVAudioPCMBuffers directly from the file and feeds them to
+    // SFSpeechAudioBufferRecognitionRequest. The hardware audio queue is
+    // never opened, so mic and system tracks can run concurrently without
+    // device-contention errors.
 
-    private func exportChunk(from url: URL, to destination: URL, start: TimeInterval, duration: TimeInterval) async throws {
+    private func recogniseBuffered(
+        url: URL,
+        recogniser: SFSpeechRecognizer,
+        startFrame: AVAudioFramePosition,
+        frameCount: AVAudioFrameCount,
+        timeOffset: TimeInterval
+    ) async throws -> (text: String, segments: [TranscriptSegment]) {
+        let sourceFile = try AVAudioFile(forReading: url)
+        let format = sourceFile.processingFormat
+        sourceFile.framePosition = startFrame
+
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = false
+
+        // Append all frames for this chunk, then signal end-of-audio
+        let bufSize: AVAudioFrameCount = 8192
+        var remaining = frameCount
+        while remaining > 0 {
+            let toRead = min(bufSize, remaining)
+            guard let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: toRead) else { break }
+            try sourceFile.read(into: buf, frameCount: toRead)
+            guard buf.frameLength > 0 else { break }
+            request.append(buf)
+            remaining -= buf.frameLength
+        }
+        request.endAudio()
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var resumed = false
+            recogniser.recognitionTask(with: request) { result, error in
+                guard !resumed else { return }
+                if let error {
+                    logger.error("AppleSpeechTranscriber: recognition error — \(error.localizedDescription)")
+                    resumed = true
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let result, result.isFinal else { return }
+                let text = result.bestTranscription.formattedString
+                let segments = result.bestTranscription.segments.map {
+                    TranscriptSegment(
+                        startTime: $0.timestamp + timeOffset,
+                        endTime: $0.timestamp + $0.duration + timeOffset,
+                        text: $0.substring
+                    )
+                }
+                logger.info("AppleSpeechTranscriber: final — \(text.count) chars, \(segments.count) segments")
+                resumed = true
+                continuation.resume(returning: (text, segments))
+            }
+        }
+    }
+
+    // MARK: - URL-based recognition (compressed: mp4, m4a)
+
+    private func recogniseURL(
+        request: SFSpeechURLRecognitionRequest,
+        recogniser: SFSpeechRecognizer,
+        timeOffset: TimeInterval
+    ) async throws -> (text: String, segments: [TranscriptSegment]) {
+        try await withCheckedThrowingContinuation { continuation in
+            var resumed = false
+            recogniser.recognitionTask(with: request) { result, error in
+                guard !resumed else { return }
+                if let error {
+                    logger.error("AppleSpeechTranscriber: recognition error — \(error.localizedDescription)")
+                    resumed = true
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let result, result.isFinal else { return }
+                let text = result.bestTranscription.formattedString
+                let segments = result.bestTranscription.segments.map {
+                    TranscriptSegment(
+                        startTime: $0.timestamp + timeOffset,
+                        endTime: $0.timestamp + $0.duration + timeOffset,
+                        text: $0.substring
+                    )
+                }
+                logger.info("AppleSpeechTranscriber: final — \(text.count) chars, \(segments.count) segments")
+                resumed = true
+                continuation.resume(returning: (text, segments))
+            }
+        }
+    }
+
+    // MARK: - Export compressed chunk (mp4/m4a only)
+
+    private func exportCompressedChunk(
+        from url: URL,
+        to destination: URL,
+        start: TimeInterval,
+        duration: TimeInterval
+    ) async throws {
         let asset = AVURLAsset(url: url)
         guard let session = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
             throw TranscriptionError.exportFailed
@@ -130,51 +259,16 @@ struct AppleSpeechTranscriber: TranscriptionService {
         try await session.export(to: destination, as: .m4a)
     }
 
-    // MARK: - Core recognition
-
-    private func recognise(
-        request: SFSpeechURLRecognitionRequest,
-        recogniser: SFSpeechRecognizer,
-        timeOffset: TimeInterval
-    ) async throws -> (text: String, segments: [TranscriptSegment]) {
-        try await withCheckedThrowingContinuation { continuation in
-            var resumed = false
-            recogniser.recognitionTask(with: request) { result, error in
-                guard !resumed else { return }
-
-                if let error {
-                    logger.error("AppleSpeechTranscriber: recognition error — \(error.localizedDescription)")
-                    resumed = true
-                    continuation.resume(throwing: error)
-                    return
-                }
-
-                guard let result else { return }
-                guard result.isFinal else { return }
-
-                let text = result.bestTranscription.formattedString
-                // Shift segment timestamps by the chunk offset
-                let segments = result.bestTranscription.segments.map {
-                    TranscriptSegment(
-                        startTime: $0.timestamp + timeOffset,
-                        endTime: $0.timestamp + $0.duration + timeOffset,
-                        text: $0.substring
-                    )
-                }
-
-                logger.info("AppleSpeechTranscriber: final — \(text.count) chars, \(segments.count) segments")
-                resumed = true
-                continuation.resume(returning: (text, segments))
-            }
-        }
-    }
-
     // MARK: - Helpers
 
     private func audioDuration(url: URL) async throws -> TimeInterval {
         let asset = AVURLAsset(url: url)
         let duration = try await asset.load(.duration)
         return duration.seconds
+    }
+
+    private func fileSampleRate(url: URL) throws -> Double {
+        try AVAudioFile(forReading: url).processingFormat.sampleRate
     }
 }
 
