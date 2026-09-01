@@ -2,17 +2,27 @@
 //  TeamsMeetingDetector.swift
 //  MeetingRecorder
 //
-//  Polls NSWorkspace and CGWindowList every 2 seconds to detect whether a
-//  Microsoft Teams meeting is in progress. Emits MeetingDetectionEvents —
-//  never calls any recording API directly.
+//  Polls NSWorkspace every 2 seconds to detect whether a Microsoft Teams
+//  meeting is in progress. Emits MeetingDetectionEvents — never calls any
+//  recording API directly.
+//
+//  Scoring (macOS 14+):
+//    Teams running                    +15
+//    Teams is the active app          +15
+//    Microphone in use (any process)  +30  ← strong call signal
+//    Teams running > 30s              +10  ← settled, not just launching
 //
 //  State machine:
-//    IDLE → POSSIBLE_MEETING (score ≥ 50) → IN_MEETING (stable 3 s)
-//    IN_MEETING → POSSIBLE_END (score < 30) → IDLE (stable 8 s)
-//    POSSIBLE_END → IN_MEETING (signals return before 8 s)
+//    IDLE → POSSIBLE_MEETING (score ≥ 35) → IN_MEETING (stable 8 s)
+//    IN_MEETING → POSSIBLE_END (score < 20) → IDLE (stable 12 s)
+//    POSSIBLE_END → IN_MEETING (signals return before 12 s)
+//
+//  Note: CGWindowList no longer returns window names on macOS 14+ without
+//  Accessibility permission, so window-title heuristics are not used.
 //
 
 import AppKit
+import AVFoundation
 import CoreGraphics
 import OSLog
 
@@ -41,10 +51,6 @@ final class TeamsMeetingDetector: MeetingDetector {
     private static let teamsBundleIDs: Set<String> = [
         "com.microsoft.teams2",
         "com.microsoft.teams"
-    ]
-
-    private static let meetingKeywords: [String] = [
-        "Meeting", "Call", "Video", "Audio", "Conference", "Live", "Recording"
     ]
 
     private var pollTimer: Timer?
@@ -82,20 +88,20 @@ final class TeamsMeetingDetector: MeetingDetector {
         switch state {
 
         case .idle:
-            if score >= 50 {
+            if score >= 35 {
                 state = .possibleMeeting
                 possibleMeetingStart = Date()
                 lastKnownContext = context
-                logger.debug("TeamsMeetingDetector: IDLE → POSSIBLE_MEETING (score=\(score))")
+                logger.info("TeamsMeetingDetector: IDLE → POSSIBLE_MEETING (score=\(score))")
                 if let ctx = context {
                     onEvent?(.potentialMeetingDetected(ctx))
                 }
             }
 
         case .possibleMeeting:
-            if score >= 50 {
+            if score >= 35 {
                 let elapsed = Date().timeIntervalSince(possibleMeetingStart ?? Date())
-                if elapsed >= 3.0 {
+                if elapsed >= 8.0 {
                     state = .inMeeting
                     let ctx = context ?? lastKnownContext ?? makeUnknownContext()
                     lastKnownContext = ctx
@@ -106,27 +112,27 @@ final class TeamsMeetingDetector: MeetingDetector {
                 // Signals dropped before confirmed — back to idle
                 state = .idle
                 possibleMeetingStart = nil
-                logger.debug("TeamsMeetingDetector: POSSIBLE_MEETING → IDLE (score dropped, score=\(score))")
+                logger.info("TeamsMeetingDetector: POSSIBLE_MEETING → IDLE (score dropped, score=\(score))")
             }
 
         case .inMeeting:
-            if score < 30 {
+            if score < 20 {
                 state = .possibleEnd
                 possibleEndStart = Date()
-                logger.debug("TeamsMeetingDetector: IN_MEETING → POSSIBLE_END (score=\(score))")
+                logger.info("TeamsMeetingDetector: IN_MEETING → POSSIBLE_END (score=\(score))")
             } else if let ctx = context {
                 lastKnownContext = ctx
             }
 
         case .possibleEnd:
-            if score >= 30 {
+            if score >= 20 {
                 // Signals returned — meeting still ongoing
                 state = .inMeeting
                 possibleEndStart = nil
-                logger.debug("TeamsMeetingDetector: POSSIBLE_END → IN_MEETING (score recovered, score=\(score))")
+                logger.info("TeamsMeetingDetector: POSSIBLE_END → IN_MEETING (score recovered, score=\(score))")
             } else {
                 let elapsed = Date().timeIntervalSince(possibleEndStart ?? Date())
-                if elapsed >= 8.0 {
+                if elapsed >= 12.0 {
                     let ctx = lastKnownContext ?? makeUnknownContext()
                     state = .idle
                     possibleEndStart = nil
@@ -151,50 +157,34 @@ final class TeamsMeetingDetector: MeetingDetector {
             return 0   // Teams not running at all
         }
 
-        // Teams process running: +10
-        score += 10
+        // Teams process is running: +15
+        score += 15
 
-        // Teams is active (has keyboard focus): +10
+        // Teams is the active (frontmost) application: +15
         if teamsApp.isActive {
-            score += 10
+            score += 15
         }
 
-        // Teams is frontmost: +5
-        if teamsApp.isActive {
-            score += 5
-        }
-
-        // Window title contains meeting keyword: +30
-        if hasMeetingWindow(pid: teamsApp.processIdentifier) {
+        // Microphone is in use by any process: +30
+        // This is the strongest call signal — mic activates when a call starts.
+        if isMicrophoneInUse() {
             score += 30
         }
 
+        // Teams has been running for >30s — not just launching: +10
+        if let launchDate = teamsApp.launchDate,
+           Date().timeIntervalSince(launchDate) > 30 {
+            score += 10
+        }
+
+        logger.debug("TeamsMeetingDetector: score=\(score) (active=\(teamsApp.isActive) mic=\(self.isMicrophoneInUse()))")
         return score
     }
 
-    // MARK: - Window title detection (CGWindowList — no Accessibility permission needed)
-
-    private func hasMeetingWindow(pid: pid_t) -> Bool {
-        guard let windowList = CGWindowListCopyWindowInfo(
-            [.optionOnScreenOnly, .excludeDesktopElements],
-            kCGNullWindowID
-        ) as? [[String: Any]] else {
-            return false
-        }
-
-        for windowInfo in windowList {
-            guard let ownerPID = windowInfo[kCGWindowOwnerPID as String] as? pid_t,
-                  ownerPID == pid,
-                  let windowName = windowInfo[kCGWindowName as String] as? String else {
-                continue
-            }
-            for keyword in Self.meetingKeywords {
-                if windowName.localizedCaseInsensitiveContains(keyword) {
-                    return true
-                }
-            }
-        }
-        return false
+    /// Returns true if any audio input device is currently being used.
+    /// AVCaptureDevice.isInUseByAnotherApplication reflects real mic activity.
+    private func isMicrophoneInUse() -> Bool {
+        AVCaptureDevice.devices(for: .audio).contains { $0.isInUseByAnotherApplication }
     }
 
     // MARK: - Context helpers
@@ -208,36 +198,12 @@ final class TeamsMeetingDetector: MeetingDetector {
             return nil
         }
 
-        let title = meetingWindowTitle(pid: teamsApp.processIdentifier)
         return MeetingContext(
             applicationName: teamsApp.localizedName ?? "Microsoft Teams",
             bundleIdentifier: teamsApp.bundleIdentifier ?? "com.microsoft.teams2",
-            detectedTitle: title,
+            detectedTitle: nil,
             detectedAt: Date()
         )
-    }
-
-    private func meetingWindowTitle(pid: pid_t) -> String? {
-        guard let windowList = CGWindowListCopyWindowInfo(
-            [.optionOnScreenOnly, .excludeDesktopElements],
-            kCGNullWindowID
-        ) as? [[String: Any]] else {
-            return nil
-        }
-
-        for windowInfo in windowList {
-            guard let ownerPID = windowInfo[kCGWindowOwnerPID as String] as? pid_t,
-                  ownerPID == pid,
-                  let windowName = windowInfo[kCGWindowName as String] as? String else {
-                continue
-            }
-            for keyword in Self.meetingKeywords {
-                if windowName.localizedCaseInsensitiveContains(keyword) {
-                    return windowName
-                }
-            }
-        }
-        return nil
     }
 
     private func makeUnknownContext() -> MeetingContext {
