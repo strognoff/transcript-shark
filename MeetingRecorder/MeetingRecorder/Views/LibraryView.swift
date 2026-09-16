@@ -17,6 +17,8 @@ struct LibraryView: View {
     @State private var selectedMeeting: Meeting?
     @State private var searchText: String = ""
     @State private var selectedMeetingTranscript: String = ""
+    @State private var renamingMeeting: Meeting?
+    @State private var renameText: String = ""
 
     // MARK: - Helpers
 
@@ -45,6 +47,29 @@ struct LibraryView: View {
         }
     }
 
+    private func beginRenaming(_ meeting: Meeting) {
+        renamingMeeting = meeting
+        renameText = meeting.title
+    }
+
+    private func saveRename() {
+        guard let meeting = renamingMeeting else { return }
+        let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        repo.updateTitle(meeting, title: trimmed)
+        if let updated = repo.meetings.first(where: { $0.id == meeting.id }) {
+            selectedMeeting = updated
+        }
+        renamingMeeting = nil
+        renameText = ""
+    }
+
+    private func cancelRename() {
+        renamingMeeting = nil
+        renameText = ""
+    }
+
     var body: some View {
         NavigationSplitView {
             SidebarView(selection: $sidebarFilter, folderRepo: folderRepo, meetingRepo: repo)
@@ -59,10 +84,11 @@ struct LibraryView: View {
                     }
                     selectedMeeting = nil
                     Task { await reloadAndSync() }
-                }
+                },
+                onRename: beginRenaming
             )
             .navigationSplitViewColumnWidth(min: 220, ideal: 260)
-            .searchable(text: $searchText, placement: .toolbar, prompt: "Search meetings")
+            .searchable(text: $searchText, placement: .toolbar, prompt: "Search recordings")
         } detail: {
             if let meeting = selectedMeeting {
                 HSplitView {
@@ -86,7 +112,8 @@ struct LibraryView: View {
                             if let idx = repo.meetings.firstIndex(where: { $0.id == m.id }) {
                                 selectedMeeting = repo.meetings[idx]
                             }
-                        }
+                        },
+                        onRename: beginRenaming
                     )
                     .frame(minWidth: 380)
 
@@ -132,6 +159,9 @@ struct LibraryView: View {
                 }
             }
         }
+        .sheet(item: $renamingMeeting) { _ in
+            RenameRecordingSheetView(name: $renameText, onSave: saveRename, onCancel: cancelRename)
+        }
         // Poll every 2s while transcription is active, refresh selected meeting when done
         .task {
             while true {
@@ -147,5 +177,31 @@ struct LibraryView: View {
                 }
             }
         }
+    }
+}
+
+private struct RenameRecordingSheetView: View {
+    @Binding var name: String
+    let onSave: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Rename Recording")
+                .font(.headline)
+            TextField("Recording name", text: $name)
+                .textFieldStyle(.roundedBorder)
+                .frame(minWidth: 280)
+            HStack {
+                Button("Cancel", action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Save", action: onSave)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(24)
+        .frame(minWidth: 340)
     }
 }

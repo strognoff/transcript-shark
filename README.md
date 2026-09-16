@@ -1,22 +1,43 @@
 # Transcript Shark
 
-A native macOS application that automatically detects online meetings, records both sides of the conversation, transcribes the audio into speaker-labelled Markdown, and generates an AI summary — so your meeting notes write themselves.
+Transcript Shark is a native macOS menu bar app for recording, transcribing, organising, and summarising audio from calls, streams, interviews, demos, podcasts, and meetings.
 
-> **Version:** 1.0 (build 54) · macOS 15+ · Apple Silicon & Intel
+It records your microphone and system audio, generates speaker-labelled transcripts, keeps everything local on your Mac, and can generate AI summaries with your choice of local CLI provider: **Tabnine** or **OpenCode**.
+
+> **Platform:** macOS 15+ · Swift 6 · Apple Silicon & Intel
+
+---
+
+## Screenshots
+
+### Main window
+
+![Transcript Shark main window](screenshots/mainscreen.png)
+
+### Menu bar controls
+
+![Transcript Shark menu bar](screenshots/menubar.png)
+
+### Settings
+
+![Transcript Shark settings](screenshots/settings.png)
 
 ---
 
 ## What it does
 
-1. Runs silently in the macOS menu bar
-2. Detects when a Microsoft Teams meeting starts
-3. Records your microphone **and** the remote participants' audio simultaneously into separate tracks
-4. When the meeting ends, transcribes each track independently — labelling every line **Me** or **Them**
-5. Saves the speaker-attributed transcript as a Markdown file
-6. Optionally generates an AI summary (key topics, decisions, action items) using the local Tabnine CLI
-7. Organises everything in a native four-column GUI — browse by folder, date, or search across all transcripts
+- Runs quietly from the macOS menu bar.
+- Records microphone audio and system audio.
+- Supports manual recording for any use case.
+- Can auto-detect Microsoft Teams activity and start/stop recording automatically.
+- Saves recordings locally with transcripts and optional summaries.
+- Organises recordings by folder, date, and search.
+- Lets you rename recordings so titles are meaningful.
+- Provides a camera bubble overlay with selectable camera input.
+- Generates AI summaries using a local provider: Tabnine or OpenCode.
+- Lets you customise the prompt sent to the AI provider.
 
-All data stays on your Mac. No cloud. No subscriptions. No audio uploads.
+All data stays on your Mac. Transcript Shark does not upload audio, transcripts, or summaries to its own servers.
 
 ---
 
@@ -25,22 +46,23 @@ All data stays on your Mac. No cloud. No subscriptions. No audio uploads.
 | Requirement | Value |
 |---|---|
 | macOS | 15.0 or later |
-| Xcode | 16.0 or later (to build from source) |
+| Xcode | 16.0 or later to build from source |
 | Swift | 6 |
 | Architecture | Apple Silicon or Intel |
-| Tabnine CLI | Required only for AI Summary feature |
+| AI Summary provider | Optional: Tabnine CLI or OpenCode CLI |
 
 ---
 
 ## Permissions
 
-Granted during first-run onboarding:
-
 | Permission | Why |
 |---|---|
-| **Microphone** | Records your voice during meetings |
-| **Screen Recording** | Captures system audio from meeting participants (audio only — no screen content is captured or stored) |
-| **Notifications** | Tells you when recording starts, stops, and when a transcript is ready |
+| **Microphone** | Records your voice |
+| **Screen Recording** | Captures system audio only; screen video is not stored |
+| **Camera** | Shows the optional camera bubble overlay |
+| **Notifications** | Notifies when recording/transcription status changes |
+
+You are responsible for complying with recording consent laws, workplace rules, and platform policies before recording.
 
 ---
 
@@ -48,327 +70,325 @@ Granted during first-run onboarding:
 
 ### First launch
 
-On first launch a welcome screen walks you through granting the required permissions and a recording consent acknowledgement. Check **"Don't show this at startup"** on the welcome screen to skip it on future launches. You can re-enable it anytime in **Settings → General → Show startup screen at launch**.
+The onboarding flow helps you grant required permissions and acknowledge recording consent responsibilities. You can re-enable the startup screen in **Settings → General**.
 
 ### Menu bar
 
-The app lives in the macOS menu bar. The icon shows the current state at a glance:
+Transcript Shark lives in the macOS menu bar.
 
 | Icon | State |
 |---|---|
-| `○` | Idle — waiting for a meeting |
+| `○` | Idle / monitoring |
 | `●` | Recording |
 | `◌` | Transcribing |
 | `⊘` | Auto-recording disabled |
 | `!` | Error |
 
-Click the icon to see the menu:
+Typical idle menu:
 
-**While idle:**
-```
-○ Meeting Recorder
+```text
+○ Transcript Shark
 
 Auto Recording: ON
 Start Recording Manually
+Camera Bubble: OFF
 ───────────────────────
 Open App
-Settings
+Settings…
 Quit
 ```
 
-**While recording:**
-```
-● Recording — Teams
+Typical recording menu:
+
+```text
+● Recording — Manual
 00:23:41
 
 Stop Recording
-Open Meeting
+Open Recording
 Disable Auto Recording
 ───────────────────────
 Open App
-Settings
+Camera Bubble: OFF
+Settings…
 Quit
 ```
 
-### Automatic recording (Teams)
-
-When Teams meeting detection is enabled (the default), the app:
-
-1. Monitors running applications for Microsoft Teams
-2. Uses a scoring model to determine whether a real meeting is in progress
-3. Waits for a stable signal (3 seconds) before starting to record
-4. Records until the meeting ends and there is no activity for 8 seconds
-5. Sends a notification and begins transcription automatically
-
 ### Manual recording
 
-Click the menu bar icon → **Start Recording Manually** to record anything, independent of meeting detection.
+Click the menu bar icon → **Start Recording Manually** to record anything: livestreams, interviews, podcasts, demos, meetings, or ad-hoc notes.
+
+### Automatic Teams recording
+
+When auto-recording is enabled, Transcript Shark monitors Microsoft Teams signals and starts/stops recording when a Teams call appears active. This remains an automation convenience; manual recording is available for all other workflows.
+
+### Camera bubble
+
+Go to **Settings → Recording → Camera Bubble** to:
+
+- Manually show/hide the camera bubble.
+- Choose **Automatic**, built-in camera, or a connected USB camera.
+
+The bubble appears as a small circular preview in the bottom-right corner of the screen. Background blur was removed for stability and is not currently available.
 
 ### Main window
 
-Open the app from the menu bar. The main window shows four columns:
+The main window has columns for folders, recordings, recording detail, and AI summary.
 
-```
+```text
 ┌──────────┬─────────────────┬──────────────────────────┬──────────────────┐
-│ FOLDERS  │ MEETINGS        │ MEETING DETAIL           │ AI SUMMARY       │
+│ FOLDERS  │ RECORDINGS      │ RECORDING DETAIL         │ AI SUMMARY       │
 │          │                 │                          │                  │
-│ All      │ Aug 26          │ 1:1 John Smith           │ ✦ AI Summary     │
-│ Today    │ 10:02 John ✓   │ 26 Aug 2026 · 45 min     │ ──────────────── │
-│          │                 │                          │ **Key Topics**   │
-│ People   │ Aug 15          │ ▶ ━━━━━━━ 12:14 / 45:12  │ Platform roadmap │
-│  John    │ 09:30 Sarah ✓  │                          │                  │
-│  Sarah   │                 │ Transcript               │ **Decisions**    │
-│          │                 │                          │ Ship in Sept     │
-│ Projects │                 │ **Me** `00:00`           │                  │
-│          │                 │ Morning John...          │ **Action Items** │
-│ + Folder │                 │ **Them** `00:18`         │ - Jeff: RFC doc  │
-│          │                 │ Yeah I'm good...         │                  │
-│          │                 │                          │ [Re-summarise]   │
+│ All      │ Sep 16          │ Product Demo             │ ✦ AI Summary     │
+│ Today    │ 13:56 Demo ✓   │ 16 Sep 2026 · 22 min     │ ──────────────── │
+│          │                 │                          │ Highlights...    │
+│ People   │ Sep 15          │ ▶ ━━━━━━━ 12:14 / 22:00  │                  │
+│  Sarah   │ 09:30 Sync ✓   │                          │ [Re-summarise]   │
 └──────────┴─────────────────┴──────────────────────────┴──────────────────┘
 ```
 
-### Speaker-attributed transcripts
+### Rename recordings
 
-Each recording produces two audio sidecar files — one for your microphone, one for system audio. These are transcribed independently and merged by timestamp, so every segment in the transcript is labelled:
+You can rename recordings to something useful instead of a timestamp:
 
-```markdown
-**Me** `00:00`
+- Right-click a recording in the list → **Rename**.
+- Or select a recording and click **Rename** in the detail toolbar.
 
-Morning John, how are you doing?
+Blank names are not allowed.
 
-**Them** `00:18`
+### Organise recordings
 
-Yeah I'm good. I wanted to talk about the platform project...
-
-**Me** `00:34`
-
-Sure, what's on your mind?
-```
-
-If sidecar files are unavailable, the app falls back to transcribing the combined recording without speaker labels.
-
-### AI Summary panel
-
-The rightmost panel generates a concise AI summary of the transcript using the **local Tabnine CLI** — nothing is sent to any external server.
-
-- Click **Summarise** to generate. This calls `tabnine` on your machine and takes 5–15 seconds.
-- The summary is saved as `<recording>_summary.md` next to the audio file and **reloaded automatically** on future visits — no need to regenerate.
-- Click **Re-summarise** to force a fresh summary (overwrites the saved one).
-- Click **Copy** to copy the summary to the clipboard.
-
-The summary is structured as:
-
-```
-**Key Topics**
-…
-
-**Decisions Made**
-…
-
-**Action Items**
-…
-```
-
-#### Tabnine CLI requirement
-
-The AI Summary feature requires the [Tabnine CLI](https://www.tabnine.com) to be installed locally. The default expected path is:
-
-```
-/Users/<you>/.local/bin/tabnine
-```
-
-If yours is installed elsewhere, update it in **Settings → AI Summary → Executable Path**.
-
-### Organising meetings
-
-- Click **+ Folder** in the sidebar to create a folder
-- Drag a meeting from the list into a folder, or use **Move to Folder** in the toolbar
-- Folder structure is stored in metadata — audio files are never moved
+- Click **+ Folder** in the sidebar to create folders.
+- Drag recordings into folders.
+- Use **Move to Folder** from the detail toolbar.
+- Folder organisation is stored as metadata; audio files are not physically moved.
 
 ### Search
 
-Use the search bar above the meetings list to filter by meeting title.
+Use the search bar above the recordings list to filter recordings by title.
 
 ---
 
-## Transcript format
+## Transcripts
 
-Each meeting produces a Markdown file at:
-
-```
-~/Library/Application Support/MeetingRecorder/Recordings/<date>_<name>/
-├── recording.mp4          ← combined audio (for playback)
-├── recording_mic.caf      ← your microphone only
-├── recording_system.caf   ← remote participants only
-├── recording_transcript.md
-└── recording_summary.md   ← AI summary (created on demand)
-```
-
-Example transcript with speaker attribution:
+Each recording can produce speaker-attributed Markdown:
 
 ```markdown
 ---
 id: 09E4FC95-17A0-4B65
-title: "1:1 with John Smith"
-date: 2026-08-26
-started: 10:02
-duration_seconds: 2712
-meeting_application: "Microsoft Teams"
+title: "Product Demo"
+date: 2026-09-16
+started: 13:56
+duration_seconds: 1320
+meeting_application: "Manual"
 audio_file: "recording.mp4"
 ---
 
-# 1:1 with John Smith
+# Product Demo
 
-**Date:** 26 August 2026
-**Started:** 10:02
-**Ended:** 10:47
-**Duration:** 45 minutes
-**Application:** Microsoft Teams
+**Date:** 16 September 2026
+**Started:** 13:56
+**Ended:** 14:18
+**Duration:** 22 minutes
+**Application:** Manual
 
 ## Transcript
 
 **Me** `00:00`
 
-Morning John, how are you?
+Welcome to the walkthrough.
 
 **Them** `00:18`
 
-Yeah I'm good. I wanted to talk about the platform project...
+Can you show the export flow?
 ```
+
+If sidecar files are unavailable, Transcript Shark falls back to transcribing the combined recording.
+
+Files are stored under:
+
+```text
+~/Library/Application Support/MeetingRecorder/Recordings/<date>_<name>/
+├── recording.mp4
+├── recording_mic.caf
+├── recording_system.caf
+├── recording_transcript.md
+└── recording_summary.md
+```
+
+> The internal application-support path still uses `MeetingRecorder` for compatibility with existing local data.
+
+---
+
+## AI Summary
+
+The AI Summary panel can generate and persist a Markdown summary next to the recording.
+
+Supported local providers:
+
+| Provider | Default executable |
+|---|---|
+| Tabnine | `/Users/<you>/.local/bin/tabnine` |
+| OpenCode | `/usr/local/bin/opencode` |
+
+Configure this in **Settings → AI Summary**:
+
+- Choose **Tabnine** or **OpenCode**.
+- Set the provider executable path.
+- Edit the summary instructions/prompt.
+- Reset the prompt to the default.
+
+Example custom prompt:
+
+```text
+Give me only the highlights.
+```
+
+When you click **Summarise**, Transcript Shark sends the transcript to the selected local CLI provider. The resulting summary is saved as:
+
+```text
+<recording>_summary.md
+```
+
+Click **Re-summarise** to regenerate and overwrite the saved summary.
 
 ---
 
 ## Settings
 
-Open via **Settings** in the menu bar or `⌘,`.
+Open via **Settings…** in the menu bar or `⌘,`.
 
 | Tab | What you can configure |
 |---|---|
-| **General** | Launch at login, auto-recording, show startup screen at launch, notifications |
-| **Recording** | Microphone info (uses system default) |
+| **General** | Launch at login, auto-recording, startup screen, notifications |
+| **Recording** | Microphone info, camera bubble, camera selection |
 | **Transcription** | Auto-transcribe after recording, language |
-| **Storage** | Storage usage, open in Finder, retention policy |
-| **Privacy** | Permission status for Screen Recording and Microphone |
-| **AI Summary** | Tabnine CLI executable path (with Browse button and live Found/Not found indicator) |
-
----
-
-## Keyboard shortcuts
-
-| Shortcut | Action |
-|---|---|
-| `Space` | Play / Pause selected recording |
-| `←` / `→` | Rewind / Forward 10 seconds |
-| `Delete` | Delete selected meeting |
+| **Storage** | Recording location, open in Finder, retention policy placeholder |
+| **Privacy** | Screen Recording, Microphone, and Camera permission status |
+| **AI Summary** | Provider selection, executable path, custom summary instructions |
 
 ---
 
 ## Building from source
 
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/strognoff/transcript-shark.git
-cd transcript-shark
-```
-
-### 2. Open in Xcode
+### Open in Xcode
 
 ```bash
 open MeetingRecorder/MeetingRecorder.xcodeproj
 ```
 
-### 3. Select your team
+Then select the **MeetingRecorder** scheme, choose **My Mac**, and press `⌘R`.
 
-1. Select the `MeetingRecorder` target
-2. Open **Signing & Capabilities**
-3. Set your Apple Developer Team (a free personal team works for local development)
+### CLI build
 
-### 4. Build and run
-
-Press **⌘R** or choose **Product → Run**.
-
-### 5. Run on your machine without a paid account
-
-For personal use without an Apple Developer account:
-
-1. **Product → Archive**
-2. In Organizer: **Distribute App → Copy App**
-3. Drag the exported `.app` to `/Applications`
-4. First launch: right-click → Open (bypasses Gatekeeper for unsigned apps)
-
-Or bypass Gatekeeper via Terminal:
 ```bash
-xattr -dr com.apple.quarantine /Applications/MeetingRecorder.app
+cd MeetingRecorder
+xcodebuild build \
+  -project MeetingRecorder.xcodeproj \
+  -scheme MeetingRecorder \
+  -destination 'platform=macOS'
 ```
 
-### Run tests
+If code signing fails during local development, compile with signing disabled:
 
 ```bash
-xcodebuild test 
-  -scheme MeetingRecorder 
-  -destination 'platform=macOS' 
-  CODE_SIGN_IDENTITY="" 
-  CODE_SIGNING_REQUIRED=NO 
+xcodebuild build \
+  -project MeetingRecorder.xcodeproj \
+  -scheme MeetingRecorder \
+  -destination 'platform=macOS' \
   CODE_SIGNING_ALLOWED=NO
 ```
 
-Or press **⌘U** in Xcode.
+### Run tests / validation build
+
+```bash
+xcodebuild build \
+  -project MeetingRecorder.xcodeproj \
+  -target MeetingRecorderTests \
+  -configuration Debug \
+  CODE_SIGNING_ALLOWED=NO
+```
+
+---
+
+## Building a DMG
+
+```bash
+cd MeetingRecorder
+
+xcodebuild archive \
+  -project MeetingRecorder.xcodeproj \
+  -scheme MeetingRecorder \
+  -configuration Release \
+  -archivePath build/TranscriptShark.xcarchive
+
+rm -rf build/dmg-root
+mkdir -p build/dmg-root
+cp -R "build/TranscriptShark.xcarchive/Products/Applications/Transcript Shark.app" build/dmg-root/
+ln -s /Applications build/dmg-root/Applications
+
+hdiutil create \
+  -volname "Transcript Shark" \
+  -srcfolder build/dmg-root \
+  -ov \
+  -format UDZO \
+  build/Transcript-Shark.dmg
+```
+
+For public distribution, sign with a paid Apple Developer ID and notarize the DMG.
 
 ---
 
 ## Dependencies
 
-No third-party libraries. Apple frameworks only:
+No third-party app libraries are bundled. Transcript Shark uses Apple frameworks and optional local CLI tools.
 
-| Framework | Purpose |
+| Framework / Tool | Purpose |
 |---|---|
-| `SwiftUI` | UI |
-| `SwiftData` | Persistence |
-| `ScreenCaptureKit` | System audio capture |
-| `AVFoundation` | Microphone capture, audio files |
-| `Speech` | On-device transcription |
-| `UserNotifications` | System notifications |
-| `OSLog` | Structured logging |
-| `ServiceManagement` | Launch at login |
-| `Foundation.Process` | Tabnine CLI invocation |
-
-**External tool (optional):** [Tabnine CLI](https://www.tabnine.com) — required only for AI Summary.
+| SwiftUI / AppKit | Native macOS UI and menu bar |
+| SwiftData | Persistence |
+| ScreenCaptureKit | System audio capture |
+| AVFoundation | Microphone, camera preview, audio files |
+| Speech | Transcription |
+| UserNotifications | Notifications |
+| ServiceManagement | Launch at login |
+| Foundation.Process | Local AI CLI invocation |
+| Tabnine CLI | Optional AI Summary provider |
+| OpenCode CLI | Optional AI Summary provider |
 
 ---
 
 ## Privacy
 
-- Audio, transcripts, and summaries are stored **locally only**
-- Nothing is uploaded to any server
-- AI Summary uses the **local Tabnine CLI** on your machine — transcript text never leaves your Mac
-- No analytics or telemetry
-
----
-
-## Legal notice
-
-You are responsible for complying with any applicable recording consent laws, workplace policies, and confidentiality requirements before recording a meeting. The app displays a first-run consent acknowledgement to this effect.
+- Audio, transcripts, and summaries are stored locally.
+- Transcript Shark does not run analytics or telemetry.
+- Transcript Shark does not upload recordings to its own servers.
+- AI Summary uses the local provider you choose. Review that provider’s own configuration and network behaviour.
+- Secrets and API keys should not be stored in this repository.
 
 ---
 
 ## Roadmap
 
-**Shipped (v1.0)**
-- Automatic Teams meeting detection and recording
-- Speaker-attributed transcription (Me / Them)
-- AI summary panel powered by local Tabnine CLI (persisted to disk)
-- Folder organisation with drag-and-drop
-- Menu bar status with manual recording
-- Settings window with all configuration options
-- Launch at login, notifications, retention policy
+Shipped/current:
 
-**Next**
-- Zoom, Google Meet, Slack Huddle detection
-- Full-text search across all transcripts
+- Manual recording
+- Teams auto-detection
+- Speaker-attributed transcription
+- Folder organisation
+- Recording rename
+- Camera bubble with camera selection
+- AI Summary with Tabnine/OpenCode provider selection
+- Custom summary prompt
+- Menu bar controls
+
+Possible future work:
+
+- Zoom, Google Meet, and Slack Huddle detection
 - Local Whisper transcription option
-- People view (per-person meeting history)
-- Action item extraction
+- Full-text search across transcripts
+- More robust AI extraction views
+- Signed/notarized public DMG release
 
 ---
 

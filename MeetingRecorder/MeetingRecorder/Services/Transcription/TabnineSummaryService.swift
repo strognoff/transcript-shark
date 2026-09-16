@@ -2,12 +2,9 @@
 //  TabnineSummaryService.swift
 //  MeetingRecorder
 //
-//  Shells out to the local Tabnine CLI to produce an AI summary of a meeting
-//  transcript. The executable path is read from UserDefaults so users can
-//  override it in Settings → AI Summary.
-//
-//  Invocation:
-//    echo "<transcript>" | tabnine --prompt "<system prompt>" -o text
+//  Shells out to a local AI CLI provider to produce an AI summary of a
+//  transcript. Provider, executable path, and prompt are read from UserDefaults
+//  so users can customise them in Settings → AI Summary.
 //
 
 import Foundation
@@ -25,28 +22,82 @@ private extension Array where Element: Hashable {
 
 private nonisolated let logger = Logger(subsystem: "com.transcript-shark.MeetingRecorder", category: "TabnineSummaryService")
 
-/// Default path used when the user has not customised the setting.
+/// Default Tabnine path used when the user has not customised the setting.
 nonisolated let kDefaultTabnineCLIPath = "/Users/jeffcechinel/.local/bin/tabnine"
 
 /// UserDefaults key that stores the user-configured Tabnine executable path.
 nonisolated let kTabnineCLIPathKey = "tabnineCLIPath"
 
+/// Default OpenCode path used when the user has not customised the setting.
+nonisolated let kDefaultOpenCodeCLIPath = "/usr/local/bin/opencode"
+
+/// UserDefaults key that stores the user-configured OpenCode executable path.
+nonisolated let kOpenCodeCLIPathKey = "openCodeCLIPath"
+
+/// UserDefaults key that stores the selected AI summary provider.
+nonisolated let kAISummaryProviderKey = "aiSummaryProvider"
+
+/// Default instructions sent to the selected provider when the user has not customised the summary prompt.
+nonisolated let kDefaultTabnineSummaryPrompt = """
+You are a recording assistant. Summarise the following transcript concisely.
+Structure your response with three short sections:
+**Key Topics**, **Decisions Made**, and **Action Items**.
+Be brief and specific. Omit filler and small talk.
+"""
+
+/// UserDefaults key that stores custom AI summary instructions.
+nonisolated let kTabnineSummaryPromptKey = "tabnineSummaryPrompt"
+
+// MARK: - Provider
+
+enum AISummaryProvider: String, CaseIterable, Identifiable {
+    case tabnine
+    case openCode
+
+    nonisolated var id: String { rawValue }
+
+    nonisolated var displayName: String {
+        switch self {
+        case .tabnine: return "Tabnine"
+        case .openCode: return "OpenCode"
+        }
+    }
+
+    nonisolated var defaultExecutablePath: String {
+        switch self {
+        case .tabnine: return kDefaultTabnineCLIPath
+        case .openCode: return kDefaultOpenCodeCLIPath
+        }
+    }
+
+    nonisolated var executablePathKey: String {
+        switch self {
+        case .tabnine: return kTabnineCLIPathKey
+        case .openCode: return kOpenCodeCLIPathKey
+        }
+    }
+
+    nonisolated static func resolved(from rawValue: String?) -> AISummaryProvider {
+        rawValue.flatMap(AISummaryProvider.init(rawValue:)) ?? .tabnine
+    }
+}
+
 // MARK: - Errors
 
 enum SummaryError: LocalizedError {
-    case executableNotFound(String)
-    case processFailed(Int32, String)
-    case noOutput
+    case executableNotFound(provider: AISummaryProvider, path: String)
+    case processFailed(provider: AISummaryProvider, code: Int32, stderr: String)
+    case noOutput(provider: AISummaryProvider)
 
     nonisolated var errorDescription: String? {
         switch self {
-        case .executableNotFound(let path):
-            return "Tabnine executable not found at: \(path)\nUpdate the path in Settings → AI Summary."
-        case .processFailed(let code, let stderr):
+        case .executableNotFound(let provider, let path):
+            return "\(provider.displayName) executable not found at: \(path)\nUpdate the path in Settings → AI Summary."
+        case .processFailed(let provider, let code, let stderr):
             let detail = stderr.isEmpty ? "exit code \(code)" : stderr
-            return "Tabnine exited with an error: \(detail)"
-        case .noOutput:
-            return "Tabnine returned an empty response."
+            return "\(provider.displayName) exited with an error: \(detail)"
+        case .noOutput(let provider):
+            return "\(provider.displayName) returned an empty response."
         }
     }
 }
@@ -56,13 +107,6 @@ enum SummaryError: LocalizedError {
 actor TabnineSummaryService {
 
     static let shared = TabnineSummaryService()
-
-    private static let systemPrompt = """
-        You are a meeting assistant. Summarise the following meeting transcript concisely. 
-        Structure your response with three short sections: 
-        **Key Topics**, **Decisions Made**, and **Action Items**. 
-        Be brief and specific. Omit filler and small talk.
-        """
 
     // MARK: - Public API
 
@@ -81,24 +125,47 @@ actor TabnineSummaryService {
         return content
     }
 
-    /// Generates a summary using the local Tabnine CLI and persists it to disk.
+    /// Resolves the selected AI summary provider, defaulting to Tabnine for backwards compatibility.
+    nonisolated func resolvedProvider() -> AISummaryProvider {
+        AISummaryProvider.resolved(from: UserDefaults.standard.string(forKey: kAISummaryProviderKey))
+    }
+
+    /// Resolves the summary instructions sent to the selected provider, using the default when no custom prompt is configured.
+    nonisolated func resolvedSummaryPrompt() -> String {
+        let stored = UserDefaults.standard.string(forKey: kTabnineSummaryPromptKey) ?? ""
+        let trimmed = stored.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? kDefaultTabnineSummaryPrompt : trimmed
+    }
+
+    /// Resolves the executable path for a provider, using that provider's default when no custom path is configured.
+    nonisolated func resolvedExecutablePath(for provider: AISummaryProvider) -> String {
+        let stored = UserDefaults.standard.string(forKey: provider.executablePathKey) ?? ""
+        return stored.isEmpty ? provider.defaultExecutablePath : stored
+    }
+
+    /// Generates a summary using the selected local AI CLI and persists it to disk.
     /// - Parameters:
     ///   - transcript: The full transcript text to summarise.
     ///   - recordingURL: The recording's audio file URL — used to derive the save path.
     func summarise(transcript: String, recordingURL: URL) async throws -> String {
-        let executablePath = resolvedExecutablePath()
+        let provider = resolvedProvider()
+        let executablePath = resolvedExecutablePath(for: provider)
 
         guard FileManager.default.isExecutableFile(atPath: executablePath) else {
-            logger.error("TabnineSummaryService: binary not found at \(executablePath)")
-            throw SummaryError.executableNotFound(executablePath)
+            logger.error("TabnineSummaryService: \(provider.displayName) binary not found at \(executablePath)")
+            throw SummaryError.executableNotFound(provider: provider, path: executablePath)
         }
 
-        logger.info("TabnineSummaryService: running tabnine at \(executablePath)")
-        let output = try await runProcess(executable: executablePath, transcript: transcript)
+        logger.info("TabnineSummaryService: running \(provider.displayName) at \(executablePath)")
+        let output = try await runProcess(
+            provider: provider,
+            executable: executablePath,
+            transcript: transcript
+        )
 
         let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            throw SummaryError.noOutput
+            throw SummaryError.noOutput(provider: provider)
         }
 
         logger.info("TabnineSummaryService: received \(trimmed.count) chars — saving to disk")
@@ -110,31 +177,24 @@ actor TabnineSummaryService {
 
     // MARK: - Helpers
 
-    private func resolvedExecutablePath() -> String {
-        let stored = UserDefaults.standard.string(forKey: kTabnineCLIPathKey) ?? ""
-        return stored.isEmpty ? kDefaultTabnineCLIPath : stored
-    }
-
-    private func runProcess(executable: String, transcript: String) async throws -> String {
+    private func runProcess(provider: AISummaryProvider, executable: String, transcript: String) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
             let process = Process()
             process.executableURL = URL(fileURLWithPath: executable)
-            process.arguments = [
-                "--skip-trust",
-                "--prompt", Self.systemPrompt,
-                "-o", "text",
-            ]
-
-            // Apps launched from macOS inherit a minimal PATH that excludes user
-            // shell paths. The Tabnine CLI is a Node.js script, so `node` must be
-            // findable. Build an enriched PATH covering the most common install locations.
+            process.arguments = arguments(for: provider, transcript: transcript)
             process.environment = Self.enrichedEnvironment()
 
-            // Pipe transcript into stdin
-            let stdinPipe  = Pipe()
+            let stdinPipe: Pipe?
+            if provider == .tabnine {
+                let pipe = Pipe()
+                process.standardInput = pipe
+                stdinPipe = pipe
+            } else {
+                stdinPipe = nil
+            }
+
             let stdoutPipe = Pipe()
             let stderrPipe = Pipe()
-            process.standardInput  = stdinPipe
             process.standardOutput = stdoutPipe
             process.standardError  = stderrPipe
 
@@ -146,54 +206,66 @@ actor TabnineSummaryService {
                 if code == 0 {
                     continuation.resume(returning: stdout)
                 } else {
-                    logger.error("TabnineSummaryService: exit \(code) stderr=\(stderr)")
-                    continuation.resume(throwing: SummaryError.processFailed(code, stderr))
+                    logger.error("TabnineSummaryService: \(provider.displayName) exit \(code) stderr=\(stderr)")
+                    continuation.resume(throwing: SummaryError.processFailed(provider: provider, code: code, stderr: stderr))
                 }
             }
 
             do {
                 try process.run()
-                // Write transcript then close stdin so tabnine reads EOF
-                if let data = transcript.data(using: .utf8) {
+                if let stdinPipe, let data = transcript.data(using: .utf8) {
                     stdinPipe.fileHandleForWriting.write(data)
+                    stdinPipe.fileHandleForWriting.closeFile()
                 }
-                stdinPipe.fileHandleForWriting.closeFile()
             } catch {
                 continuation.resume(throwing: error)
             }
         }
     }
 
+    private func arguments(for provider: AISummaryProvider, transcript: String) -> [String] {
+        switch provider {
+        case .tabnine:
+            return [
+                "--skip-trust",
+                "--prompt", resolvedSummaryPrompt(),
+                "-o", "text",
+            ]
+        case .openCode:
+            return [
+                "run",
+                "--format", "default",
+                "--title", "Transcript Shark Summary",
+                resolvedSummaryPrompt() + "\n\nTranscript:\n" + transcript,
+            ]
+        }
+    }
+
     /// Returns a copy of the current process environment with PATH augmented to
-    /// include common Node.js install locations that are absent when an app is
+    /// include common CLI install locations that are absent when an app is
     /// launched directly from macOS (not from a shell).
     private static func enrichedEnvironment() -> [String: String] {
         var env = ProcessInfo.processInfo.environment
         let home = env["HOME"] ?? NSHomeDirectory()
 
         let extraPaths: [String] = [
-            "/usr/local/bin",           // Homebrew (Intel) / system node
-            "/opt/homebrew/bin",        // Homebrew (Apple Silicon)
+            "/usr/local/bin",
+            "/opt/homebrew/bin",
             "/opt/homebrew/sbin",
-            "\(home)/.nvm/versions/node/current/bin", // nvm generic symlink
-            "\(home)/.local/bin",       // pipx / manual installs (tabnine itself)
+            "\(home)/.nvm/versions/node/current/bin",
+            "\(home)/.local/bin",
             "/usr/bin",
             "/bin",
         ]
 
-        // Prepend extra paths to existing PATH so user's node wins if already present
         let existingPath = env["PATH"] ?? ""
         let combined = (extraPaths + existingPath.split(separator: ":").map(String.init))
             .removingDuplicates()
             .joined(separator: ":")
         env["PATH"] = combined
 
-        // Tell the CLI to trust the workspace without interactive confirmation
         env["TABNINE_CLI_TRUST_WORKSPACE"] = "true"
 
-        // Redirect the CLI's agent directory to our own app-support folder so its
-        // cache files don't collide with the Tabnine agent that runs this very session
-        // (which would cause EACCES on org_policy_cache.json)
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
             .first?.path ?? (home + "/Library/Application Support")
         let agentDir = appSupport + "/MeetingRecorder/TabnineAgent"

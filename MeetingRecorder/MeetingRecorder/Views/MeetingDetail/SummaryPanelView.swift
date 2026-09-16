@@ -88,7 +88,7 @@ struct SummaryPanelView: View {
                 .font(.system(size: 40))
                 .foregroundStyle(.purple.opacity(0.4))
 
-            Text("Generate a concise summary of key topics, decisions, and action items from this transcript.")
+            Text("Generate a summary using your AI Summary instructions from Settings.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -99,7 +99,7 @@ struct SummaryPanelView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(transcriptContent.isEmpty)
-            .help(transcriptContent.isEmpty ? "Transcribe this meeting first" : "Generate AI summary using Tabnine")
+            .help(transcriptContent.isEmpty ? "Transcribe this recording first" : "Generate AI summary using the selected provider")
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 40)

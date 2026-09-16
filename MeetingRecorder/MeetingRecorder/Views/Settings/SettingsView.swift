@@ -112,7 +112,7 @@ private struct GeneralSettingsTab: View {
                     get: { AppState.shared.autoRecordingEnabled },
                     set: { AppState.shared.autoRecordingEnabled = $0 }
                 ))
-                .help("Automatically start recording when a supported meeting application is detected.")
+                .help("Automatically start recording when a supported communication application is detected.")
 
                 Toggle("Show startup screen at launch", isOn: Binding(
                     get: { !onboardingCompleted },
@@ -120,9 +120,9 @@ private struct GeneralSettingsTab: View {
                 ))
                 .help("When enabled, the welcome screen is shown every time the app launches.")
 
-                Toggle("Enable Notifications", isOn: $notificationsEnabled)
+                Toggle("Show Notifications", isOn: $notificationsEnabled)
                     .onChange(of: notificationsEnabled) { _, newValue in
-                        handleNotificationToggle(newValue)
+                        if newValue { requestNotifications() }
                     }
                     .task { await refreshNotificationStatus() }
             }
@@ -138,26 +138,17 @@ private struct GeneralSettingsTab: View {
                 try SMAppService.mainApp.unregister()
             }
         } catch {
-            // Revert toggle on failure
-            launchAtLoginEnabled = !enabled
+            launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
         }
     }
 
-    private func handleNotificationToggle(_ enabled: Bool) {
-        if enabled {
-            Task {
-                do {
-                    let granted = try await UNUserNotificationCenter.current().requestAuthorization(
-                        options: [.alert, .sound, .badge]
-                    )
-                    await MainActor.run { notificationsEnabled = granted }
-                } catch {
-                    await MainActor.run { notificationsEnabled = false }
-                }
-            }
+    private func requestNotifications() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in
+            Task { await refreshNotificationStatus() }
         }
     }
 
+    @MainActor
     private func refreshNotificationStatus() async {
         let settings = await UNUserNotificationCenter.current().notificationSettings()
         notificationsEnabled = settings.authorizationStatus == .authorized
@@ -175,9 +166,35 @@ private struct RecordingSettingsTab: View {
                     Text("System Default")
                         .foregroundStyle(.secondary)
                 }
-                Text("Meeting Recorder uses the system default microphone. Change it in System Settings → Sound → Input.")
+                Text("Transcript Shark uses the system default microphone. Change it in System Settings → Sound → Input.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
+            }
+
+            Section("Camera Bubble") {
+                Toggle("Show camera bubble", isOn: Binding(
+                    get: { AppState.shared.cameraBubbleEnabled },
+                    set: { newValue in
+                        Task { @MainActor in
+                            await AppState.shared.setCameraBubbleEnabled(newValue)
+                        }
+                    }
+                ))
+                .help("Manually show a circular camera preview in the bottom-right corner of the screen.")
+
+                Picker("Camera", selection: Binding(
+                    get: { AppState.shared.selectedCameraID ?? "" },
+                    set: { newValue in
+                        AppState.shared.setSelectedCameraID(newValue.isEmpty ? nil : newValue)
+                    }
+                )) {
+                    Text("Automatic").tag("")
+                    ForEach(AppState.shared.availableCameras) { camera in
+                        Text(camera.localizedName).tag(camera.id)
+                    }
+                }
+                .disabled(AppState.shared.availableCameras.isEmpty)
+                .help("Choose which camera is used by the camera bubble. Select your USB camera here.")
             }
 
             Section("Audio Quality") {
@@ -185,12 +202,13 @@ private struct RecordingSettingsTab: View {
                     Text("System Default (AAC)")
                         .foregroundStyle(.secondary)
                 }
-                Text("Audio quality is determined by ScreenCaptureKit and cannot be customised independently.")
+                Text("Recordings are saved as MP4 files with system-managed audio quality.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
+        .onAppear { AppState.shared.refreshAvailableCameras() }
     }
 }
 
@@ -199,40 +217,46 @@ private struct RecordingSettingsTab: View {
 private struct TranscriptionSettingsTab: View {
 
     @AppStorage("autoTranscribe") private var autoTranscribe: Bool = false
-    @AppStorage("transcriptionLocale") private var transcriptionLocale: String = Locale.current.identifier
+    @AppStorage("transcriptionLanguage") private var transcriptionLanguage: String = Locale.current.identifier
 
-    private var supportedLocales: [Locale] {
-        SFSpeechRecognizer.supportedLocales()
-            .sorted { localeDisplayName($0) < localeDisplayName($1) }
-    }
+    private let commonLocales: [Locale] = [
+        Locale(identifier: "en_US"),
+        Locale(identifier: "en_GB"),
+        Locale(identifier: "pt_BR"),
+        Locale(identifier: "es_ES"),
+        Locale(identifier: "fr_FR"),
+        Locale(identifier: "de_DE")
+    ]
 
     var body: some View {
         Form {
-            Section("Behaviour") {
+            Section("Transcription") {
                 Toggle("Auto-transcribe after recording", isOn: $autoTranscribe)
-                    .help("Automatically begin transcription when a recording finishes. Off by default — use the Retry button in Meeting Detail.")
-            }
+                    .help("Automatically begin transcription when a recording finishes. Off by default — use the Retry button in Recording Detail.")
 
-            Section("Language") {
-                Picker("Language", selection: $transcriptionLocale) {
-                    ForEach(supportedLocales, id: \.identifier) { locale in
-                        Text(localeDisplayName(locale))
+                Picker("Language", selection: $transcriptionLanguage) {
+                    ForEach(commonLocales, id: \.identifier) { locale in
+                        Text(locale.localizedString(forIdentifier: locale.identifier) ?? locale.identifier)
                             .tag(locale.identifier)
                     }
                 }
                 .pickerStyle(.menu)
-                Text("Select the primary language spoken in your meetings.")
+                Text("Select the primary language spoken in your recordings.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Engine") {
+                LabeledContent("Speech Engine") {
+                    Text("Apple Speech")
+                        .foregroundStyle(.secondary)
+                }
+                Text("Transcription runs on-device when possible using Apple's Speech framework.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
-    }
-
-    private func localeDisplayName(_ locale: Locale) -> String {
-        let name = Locale.current.localizedString(forIdentifier: locale.identifier)
-            ?? locale.identifier
-        return name
     }
 }
 
@@ -240,82 +264,38 @@ private struct TranscriptionSettingsTab: View {
 
 private struct StorageSettingsTab: View {
 
-    @AppStorage("retentionDays") private var retentionDays: Int = 0
-    @State private var storageUsedBytes: Int64 = 0
+    @AppStorage("retentionPolicyDays") private var retentionPolicyDays: Int = 0
 
-    private let recordingsURL: URL = {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return appSupport.appendingPathComponent("MeetingRecorder/Recordings", isDirectory: true)
-    }()
-
-    private let retentionOptions: [(label: String, days: Int)] = [
-        ("Never", 0),
-        ("5 days", 5),
-        ("7 days", 7),
-        ("14 days", 14),
-        ("30 days", 30),
-        ("60 days", 60),
-        ("90 days", 90),
-    ]
+    private var recordingsURL: URL { PersistenceController.baseURL.appendingPathComponent("Recordings") }
 
     var body: some View {
         Form {
-            Section("Usage") {
-                LabeledContent("Recordings Storage") {
-                    Text(formattedSize(storageUsedBytes))
-                        .foregroundStyle(.secondary)
+            Section("Storage Location") {
+                LabeledContent("Recordings Folder") {
+                    Button("Open in Finder") {
+                        NSWorkspace.shared.open(recordingsURL)
+                    }
                 }
-
-                Button("Open in Finder") {
-                    openInFinder()
-                }
+                Text(recordingsURL.path)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
             }
 
             Section("Retention") {
-                Picker("Clean up recordings older than", selection: $retentionDays) {
-                    ForEach(retentionOptions, id: \.days) { option in
-                        Text(option.label).tag(option.days)
-                    }
+                Picker("Delete recordings after", selection: $retentionPolicyDays) {
+                    Text("Never").tag(0)
+                    Text("30 days").tag(30)
+                    Text("90 days").tag(90)
+                    Text("1 year").tag(365)
                 }
                 .pickerStyle(.menu)
-
-                if retentionDays > 0 {
-                    Text("Recordings older than \(retentionDays) days will be moved to the Trash on next launch.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
+                Text("Automatic deletion is not yet implemented; this setting is reserved for a future release.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
-        .task { storageUsedBytes = calculateStorageUsed() }
-    }
-
-    private func formattedSize(_ bytes: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-    }
-
-    private func calculateStorageUsed() -> Int64 {
-        guard FileManager.default.fileExists(atPath: recordingsURL.path) else { return 0 }
-        let keys: Set<URLResourceKey> = [.fileSizeKey, .isDirectoryKey]
-        guard let enumerator = FileManager.default.enumerator(
-            at: recordingsURL,
-            includingPropertiesForKeys: Array(keys),
-            options: [.skipsHiddenFiles]
-        ) else { return 0 }
-        var total: Int64 = 0
-        for case let url as URL in enumerator {
-            let resources = try? url.resourceValues(forKeys: keys)
-            if resources?.isDirectory == false {
-                total += Int64(resources?.fileSize ?? 0)
-            }
-        }
-        return total
-    }
-
-    private func openInFinder() {
-        // Create directory if it doesn't exist yet
-        try? FileManager.default.createDirectory(at: recordingsURL, withIntermediateDirectories: true)
-        NSWorkspace.shared.open(recordingsURL)
     }
 }
 
@@ -325,6 +305,7 @@ private struct PrivacySettingsTab: View {
 
     @State private var screenRecordingGranted: Bool = false
     @State private var microphoneGranted: Bool = false
+    @State private var cameraGranted: Bool = false
 
     var body: some View {
         Form {
@@ -354,6 +335,13 @@ private struct PrivacySettingsTab: View {
                     isGranted: microphoneGranted,
                     settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
                 )
+
+                permissionRow(
+                    title: "Camera",
+                    icon: "camera.fill",
+                    isGranted: cameraGranted,
+                    settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera"
+                )
             }
         }
         .formStyle(.grouped)
@@ -367,16 +355,11 @@ private struct PrivacySettingsTab: View {
             if isGranted {
                 Label("Granted", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
-                    .font(.callout)
             } else {
-                HStack(spacing: 8) {
-                    Label("Not granted", systemImage: "xmark.circle.fill")
-                        .foregroundStyle(.red)
-                        .font(.callout)
-                    Button("Open System Settings") {
-                        NSWorkspace.shared.open(URL(string: settingsURL)!)
+                Button("Open Settings") {
+                    if let url = URL(string: settingsURL) {
+                        NSWorkspace.shared.open(url)
                     }
-                    .controlSize(.small)
                 }
             }
         }
@@ -386,6 +369,10 @@ private struct PrivacySettingsTab: View {
         // Microphone
         let audioStatus = AVCaptureDevice.authorizationStatus(for: .audio)
         microphoneGranted = audioStatus == .authorized
+
+        // Camera
+        let cameraStatus = AVCaptureDevice.authorizationStatus(for: .video)
+        cameraGranted = cameraStatus == .authorized
 
         // Screen recording (heuristic — same as OnboardingView)
         let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
@@ -401,27 +388,52 @@ private struct PrivacySettingsTab: View {
 
 private struct AISummarySettingsTab: View {
 
+    @AppStorage(kAISummaryProviderKey) private var selectedProviderRawValue: String = AISummaryProvider.tabnine.rawValue
     @AppStorage(kTabnineCLIPathKey) private var tabnineCLIPath: String = ""
+    @AppStorage(kOpenCodeCLIPathKey) private var openCodeCLIPath: String = ""
+    @AppStorage(kTabnineSummaryPromptKey) private var summaryPrompt: String = ""
+
+    private var selectedProvider: AISummaryProvider {
+        AISummaryProvider.resolved(from: selectedProviderRawValue)
+    }
 
     private var resolvedPath: String {
-        tabnineCLIPath.isEmpty ? kDefaultTabnineCLIPath : tabnineCLIPath
+        executablePath(for: selectedProvider)
     }
 
     private var binaryExists: Bool {
         FileManager.default.isExecutableFile(atPath: resolvedPath)
     }
 
+    private var effectiveSummaryPrompt: Binding<String> {
+        Binding(
+            get: { summaryPrompt.isEmpty ? kDefaultTabnineSummaryPrompt : summaryPrompt },
+            set: { summaryPrompt = $0 }
+        )
+    }
+
+    private var isUsingDefaultPrompt: Bool {
+        summaryPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
         Form {
-            Section("Tabnine CLI") {
+            Section("Provider") {
+                Picker("AI Provider", selection: $selectedProviderRawValue) {
+                    ForEach(AISummaryProvider.allCases) { provider in
+                        Text(provider.displayName).tag(provider.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+
                 LabeledContent("Executable Path") {
                     HStack(spacing: 8) {
-                        TextField(kDefaultTabnineCLIPath, text: $tabnineCLIPath)
+                        TextField(selectedProvider.defaultExecutablePath, text: executablePathBinding(for: selectedProvider))
                             .textFieldStyle(.roundedBorder)
-                            .help("Path to the Tabnine CLI binary. Leave empty to use the default.")
+                            .help("Path to the \(selectedProvider.displayName) CLI binary. Leave empty to use the default.")
 
                         Button("Browse…") {
-                            browseForExecutable()
+                            browseForExecutable(provider: selectedProvider)
                         }
                         .controlSize(.small)
                     }
@@ -439,14 +451,36 @@ private struct AISummarySettingsTab: View {
                 .font(.callout)
 
                 if !binaryExists {
-                    Text("The Tabnine CLI was not found at the specified path. Install Tabnine or update the path above.")
+                    Text("The \(selectedProvider.displayName) CLI was not found at the specified path. Install \(selectedProvider.displayName) or update the path above.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
             }
 
+            Section("Summary Instructions") {
+                TextEditor(text: effectiveSummaryPrompt)
+                    .font(.body.monospaced())
+                    .frame(minHeight: 120)
+                    .help("These instructions are sent to \(selectedProvider.displayName) when generating or re-generating an AI Summary.")
+
+                HStack {
+                    Text(isUsingDefaultPrompt ? "Using the default prompt." : "Using a custom prompt.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Reset to Default") {
+                        summaryPrompt = ""
+                    }
+                    .disabled(isUsingDefaultPrompt)
+                }
+
+                Text("Example: “Give me only the highlights.”")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("About") {
-                Text("The AI Summary panel uses your local Tabnine installation to summarise meeting transcripts. No data is sent to external servers.")
+                Text("The AI Summary panel uses your selected local AI CLI provider to summarise recording transcripts. No data is sent by Transcript Shark to its own servers.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -454,15 +488,38 @@ private struct AISummarySettingsTab: View {
         .formStyle(.grouped)
     }
 
-    private func browseForExecutable() {
+    private func executablePath(for provider: AISummaryProvider) -> String {
+        switch provider {
+        case .tabnine:
+            return tabnineCLIPath.isEmpty ? provider.defaultExecutablePath : tabnineCLIPath
+        case .openCode:
+            return openCodeCLIPath.isEmpty ? provider.defaultExecutablePath : openCodeCLIPath
+        }
+    }
+
+    private func executablePathBinding(for provider: AISummaryProvider) -> Binding<String> {
+        switch provider {
+        case .tabnine:
+            return $tabnineCLIPath
+        case .openCode:
+            return $openCodeCLIPath
+        }
+    }
+
+    private func browseForExecutable(provider: AISummaryProvider) {
         let panel = NSOpenPanel()
-        panel.title = "Select Tabnine Executable"
+        panel.title = "Select \(provider.displayName) Executable"
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
-        panel.message = "Choose the Tabnine CLI binary"
+        panel.message = "Choose the \(provider.displayName) CLI binary"
         if panel.runModal() == .OK, let url = panel.url {
-            tabnineCLIPath = url.path
+            switch provider {
+            case .tabnine:
+                tabnineCLIPath = url.path
+            case .openCode:
+                openCodeCLIPath = url.path
+            }
         }
     }
 }

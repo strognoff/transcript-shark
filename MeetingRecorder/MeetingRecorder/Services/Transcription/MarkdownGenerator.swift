@@ -158,7 +158,7 @@ struct MarkdownGenerator: Sendable {
     nonisolated private func defaultTitle(for session: RecordingSession) -> String {
         let f = DateFormatter()
         f.dateFormat = "d MMM yyyy 'at' HH:mm"
-        return "Meeting — \(f.string(from: session.startedAt))"
+        return "Recording — \(f.string(from: session.startedAt))"
     }
 
     nonisolated private func formattedDate(_ date: Date) -> String {

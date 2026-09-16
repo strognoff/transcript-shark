@@ -31,14 +31,27 @@ final class AppState: ObservableObject {
             }
         }
     }
+    @Published private(set) var cameraBubbleEnabled: Bool
+    @Published private(set) var availableCameras: [CameraDevice]
+    @Published private(set) var selectedCameraID: String?
 
     // MARK: - Meeting detection coordinator
     // Stored as an implicitly unwrapped optional so we can pass `self` during init.
     private(set) var applicationCoordinator: ApplicationCoordinator!
 
+    private let cameraOverlayManager: CameraOverlayManaging
     private var cancellables = Set<AnyCancellable>()
 
-    private init() {
+    init(cameraOverlayManager: CameraOverlayManaging = CameraOverlayManager()) {
+        let storedCameraID = UserDefaults.standard.string(forKey: "selectedCameraID")
+
+        self.cameraOverlayManager = cameraOverlayManager
+        self.cameraBubbleEnabled = false
+        self.availableCameras = cameraOverlayManager.availableCameras
+        self.selectedCameraID = storedCameraID
+        self.cameraOverlayManager.setSelectedCameraID(storedCameraID)
+        UserDefaults.standard.removeObject(forKey: "cameraBubbleEnabled")
+
         coordinator.$recorderState
             .assign(to: &$recorderState)
         coordinator.$duration
@@ -65,6 +78,50 @@ final class AppState: ObservableObject {
 
     func reset() {
         coordinator.reset()
+    }
+
+    func refreshAvailableCameras() {
+        availableCameras = cameraOverlayManager.availableCameras
+
+        if let selectedCameraID,
+           !availableCameras.contains(where: { $0.id == selectedCameraID }) {
+            setSelectedCameraID(nil)
+        }
+    }
+
+    func setSelectedCameraID(_ cameraID: String?) {
+        selectedCameraID = cameraID
+        cameraOverlayManager.setSelectedCameraID(cameraID)
+
+        if let cameraID {
+            UserDefaults.standard.set(cameraID, forKey: "selectedCameraID")
+        } else {
+            UserDefaults.standard.removeObject(forKey: "selectedCameraID")
+        }
+
+        guard cameraBubbleEnabled else { return }
+
+        Task { @MainActor in
+            await setCameraBubbleEnabled(true)
+        }
+    }
+
+    @discardableResult
+    func setCameraBubbleEnabled(_ enabled: Bool) async -> Bool {
+        let isEnabled = await cameraOverlayManager.setVisible(enabled)
+        cameraBubbleEnabled = isEnabled
+
+        if enabled && !isEnabled {
+            permissionError = "Camera access is required to show the camera bubble."
+        } else if permissionError == "Camera access is required to show the camera bubble." {
+            permissionError = nil
+        }
+
+        return isEnabled
+    }
+
+    func toggleCameraBubble() async {
+        await setCameraBubbleEnabled(!cameraBubbleEnabled)
     }
 
     // MARK: - Convenience

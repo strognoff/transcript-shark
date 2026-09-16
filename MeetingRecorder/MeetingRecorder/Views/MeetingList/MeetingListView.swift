@@ -13,6 +13,7 @@ struct MeetingListView: View {
     let groups: [MeetingDateGroup]
     @Binding var selection: Meeting?
     let onDelete: ([Meeting]) -> Void
+    let onRename: (Meeting) -> Void
 
     @State private var isSelecting: Bool = false
     @State private var multiSelection: Set<Meeting> = []
@@ -23,7 +24,7 @@ struct MeetingListView: View {
                 ContentUnavailableView(
                     "No Recordings",
                     systemImage: "waveform.slash",
-                    description: Text("Recordings will appear here after you stop a meeting.")
+                    description: Text("Recordings will appear here after you stop recording.")
                 )
             } else {
                 if isSelecting {
@@ -44,6 +45,10 @@ struct MeetingListView: View {
                                 ForEach(group.meetings) { meeting in
                                     MeetingRowView(meeting: meeting)
                                         .tag(meeting)
+                                        .contextMenu {
+                                            Button("Rename") { onRename(meeting) }
+                                            Button("Delete", role: .destructive) { onDelete([meeting]) }
+                                        }
                                         .onDrag {
                                             NSItemProvider(object: meeting.id.uuidString as NSString)
                                         }
@@ -55,7 +60,7 @@ struct MeetingListView: View {
                 }
             }
         }
-        .navigationTitle("Meetings")
+        .navigationTitle("Recordings")
         .toolbar {
             if isSelecting {
                 ToolbarItem(placement: .primaryAction) {

@@ -142,7 +142,7 @@ struct OnboardingView: View {
             }
 
         case .consent:
-            Button("Start Using Meeting Recorder") {
+            Button("Start Using Transcript Shark") {
                 completeOnboarding()
             }
             .buttonStyle(.borderedProminent)
@@ -161,9 +161,9 @@ struct OnboardingView: View {
                 .symbolEffect(.pulse)
 
             VStack(spacing: 8) {
-                Text("Meeting Recorder")
+                Text("Transcript Shark")
                     .font(.largeTitle.bold())
-                Text("Automatically record, transcribe, and organise your meetings — privately, on your Mac.")
+                Text("Automatically record, transcribe, and organise your recordings — privately, on your Mac.")
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -186,7 +186,7 @@ struct OnboardingView: View {
             icon: "desktopcomputer",
             iconColor: .blue,
             title: "Screen Recording",
-            description: "Meeting Recorder needs Screen Recording permission to capture system audio from your meetings — including remote participants. No video is ever recorded.",
+            description: "Transcript Shark needs Screen Recording permission to capture system audio for your recordings — including remote participants. No screen video is ever recorded.",
             isGranted: screenRecordingGranted
         )
         .onAppear {
@@ -200,7 +200,7 @@ struct OnboardingView: View {
             icon: "mic.fill",
             iconColor: .orange,
             title: "Microphone Access",
-            description: "Meeting Recorder uses your microphone to capture your voice during recordings, so both sides of the conversation are preserved.",
+            description: "Transcript Shark uses your microphone to capture your voice during recordings, so both sides of the conversation are preserved.",
             isGranted: microphoneGranted
         )
     }
@@ -224,7 +224,7 @@ struct OnboardingView: View {
             VStack(spacing: 8) {
                 Text("Recording Consent")
                     .font(.title2.bold())
-                Text("Before using Meeting Recorder, please confirm that you understand your responsibilities.")
+                Text("Before using Transcript Shark, please confirm that you understand your responsibilities.")
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -232,7 +232,7 @@ struct OnboardingView: View {
             }
 
             Toggle(isOn: $consentChecked) {
-                Text("I understand that I am responsible for obtaining consent from all meeting participants before recording, in accordance with applicable laws and workplace policies.")
+                Text("I understand that I am responsible for obtaining consent from all participants before recording, in accordance with applicable laws and workplace policies.")
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
             }

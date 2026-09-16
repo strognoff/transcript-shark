@@ -15,6 +15,7 @@ struct MeetingDetailView: View {
     let onDelete: (Meeting) -> Void
     let onRetry:  (Meeting) -> Void
     let onMoveToFolder: (Meeting, UUID?) -> Void
+    let onRename: (Meeting) -> Void
 
     @StateObject private var player = AudioPlayerViewModel()
     @State private var showRawMarkdown = false
@@ -319,6 +320,12 @@ struct MeetingDetailView: View {
     private var toolbarItems: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
             Button {
+                onRename(meeting)
+            } label: {
+                Label("Rename", systemImage: "pencil")
+            }
+
+            Button {
                 showFolderPicker = true
             } label: {
                 Label("Move to Folder", systemImage: "folder.badge.gear")
@@ -381,9 +388,9 @@ struct MeetingDetailView: View {
 struct MeetingDetailEmptyView: View {
     var body: some View {
         ContentUnavailableView(
-            "No Meeting Selected",
+            "No Recording Selected",
             systemImage: "waveform",
-            description: Text("Select a meeting from the list to view its details.")
+            description: Text("Select a recording from the list to view its details.")
         )
     }
 }

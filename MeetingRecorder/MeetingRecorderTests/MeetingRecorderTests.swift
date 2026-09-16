@@ -50,6 +50,140 @@ final class MockAudioCaptureService: AudioCaptureService {
     }
 }
 
+// MARK: - Mock CameraOverlayManager
+
+@MainActor
+final class MockCameraOverlayManager: CameraOverlayManaging {
+
+    var isVisible = false
+    var availableCameras: [CameraDevice] = [
+        CameraDevice(id: "built-in", localizedName: "Built-in Camera"),
+        CameraDevice(id: "usb", localizedName: "USB Camera")
+    ]
+    var selectedCameraID: String?
+    var requestedStates: [Bool] = []
+    var shouldShowSuccessfully = true
+
+    func setSelectedCameraID(_ cameraID: String?) {
+        selectedCameraID = cameraID
+    }
+
+    func setVisible(_ visible: Bool) async -> Bool {
+        requestedStates.append(visible)
+        if visible {
+            isVisible = shouldShowSuccessfully
+        } else {
+            isVisible = false
+        }
+        return isVisible
+    }
+
+    func hide() {
+        isVisible = false
+    }
+}
+
+// MARK: - AppState Camera Bubble Tests
+
+@MainActor
+struct AppStateCameraBubbleTests {
+
+    @Test func cameraBubbleCanBeEnabledAndDisabled() async {
+        let defaultsKey = "cameraBubbleEnabled"
+        UserDefaults.standard.set(true, forKey: defaultsKey)
+        defer { UserDefaults.standard.removeObject(forKey: defaultsKey) }
+
+        let mock = MockCameraOverlayManager()
+        let appState = AppState(cameraOverlayManager: mock)
+
+        #expect(!appState.cameraBubbleEnabled)
+        #expect(UserDefaults.standard.object(forKey: defaultsKey) == nil)
+        #expect(mock.requestedStates.isEmpty)
+
+        let enabled = await appState.setCameraBubbleEnabled(true)
+        #expect(enabled)
+        #expect(appState.cameraBubbleEnabled)
+        #expect(UserDefaults.standard.object(forKey: defaultsKey) == nil)
+        #expect(mock.requestedStates == [true])
+
+        let disabled = await appState.setCameraBubbleEnabled(false)
+        #expect(!disabled)
+        #expect(!appState.cameraBubbleEnabled)
+        #expect(UserDefaults.standard.object(forKey: defaultsKey) == nil)
+        #expect(mock.requestedStates == [true, false])
+    }
+
+    @Test func cameraBubbleEnableFailureDoesNotPersistEnabledState() async {
+        let defaultsKey = "cameraBubbleEnabled"
+        UserDefaults.standard.removeObject(forKey: defaultsKey)
+        defer { UserDefaults.standard.removeObject(forKey: defaultsKey) }
+
+        let mock = MockCameraOverlayManager()
+        mock.shouldShowSuccessfully = false
+        let appState = AppState(cameraOverlayManager: mock)
+
+        let enabled = await appState.setCameraBubbleEnabled(true)
+
+        #expect(!enabled)
+        #expect(!appState.cameraBubbleEnabled)
+        #expect(UserDefaults.standard.object(forKey: defaultsKey) == nil)
+        #expect(appState.permissionError == "Camera access is required to show the camera bubble.")
+    }
+
+    @Test func selectedCameraIsPersistedAndAppliedToOverlayManager() {
+        let defaultsKey = "selectedCameraID"
+        UserDefaults.standard.removeObject(forKey: defaultsKey)
+        defer { UserDefaults.standard.removeObject(forKey: defaultsKey) }
+
+        let mock = MockCameraOverlayManager()
+        let appState = AppState(cameraOverlayManager: mock)
+
+        appState.setSelectedCameraID("usb")
+
+        #expect(appState.selectedCameraID == "usb")
+        #expect(mock.selectedCameraID == "usb")
+        #expect(UserDefaults.standard.string(forKey: defaultsKey) == "usb")
+    }
+
+    @Test func selectingCameraRestartsVisibleBubble() async {
+        let bubbleKey = "cameraBubbleEnabled"
+        let cameraKey = "selectedCameraID"
+        UserDefaults.standard.removeObject(forKey: bubbleKey)
+        UserDefaults.standard.removeObject(forKey: cameraKey)
+        defer {
+            UserDefaults.standard.removeObject(forKey: bubbleKey)
+            UserDefaults.standard.removeObject(forKey: cameraKey)
+        }
+
+        let mock = MockCameraOverlayManager()
+        let appState = AppState(cameraOverlayManager: mock)
+
+        await appState.setCameraBubbleEnabled(true)
+        appState.setSelectedCameraID("usb")
+
+        #expect(appState.cameraBubbleEnabled)
+        #expect(appState.selectedCameraID == "usb")
+        #expect(mock.selectedCameraID == "usb")
+        #expect(mock.requestedStates == [true, true])
+    }
+
+    @Test func refreshAvailableCamerasClearsUnavailableSelection() {
+        let defaultsKey = "selectedCameraID"
+        UserDefaults.standard.set("missing-camera", forKey: defaultsKey)
+        defer { UserDefaults.standard.removeObject(forKey: defaultsKey) }
+
+        let mock = MockCameraOverlayManager()
+        let appState = AppState(cameraOverlayManager: mock)
+
+        appState.refreshAvailableCameras()
+
+        #expect(appState.selectedCameraID == nil)
+        #expect(mock.selectedCameraID == nil)
+        #expect(UserDefaults.standard.string(forKey: defaultsKey) == nil)
+    }
+
+}
+
 // MARK: - RecordingSession Tests
 
 @MainActor
@@ -265,27 +399,86 @@ struct SpeakerAttributionTests {
 
 struct SummaryServiceTests {
 
+    @Test func resolvedSummaryPromptUsesDefaultWhenUnsetOrBlank() {
+        UserDefaults.standard.removeObject(forKey: kTabnineSummaryPromptKey)
+        defer { UserDefaults.standard.removeObject(forKey: kTabnineSummaryPromptKey) }
+
+        let service = TabnineSummaryService()
+        #expect(service.resolvedSummaryPrompt() == kDefaultTabnineSummaryPrompt)
+
+        UserDefaults.standard.set("   \n\t  ", forKey: kTabnineSummaryPromptKey)
+        #expect(service.resolvedSummaryPrompt() == kDefaultTabnineSummaryPrompt)
+    }
+
+    @Test func resolvedSummaryPromptUsesCustomInstructions() {
+        let customPrompt = "Give me only the highlights."
+        UserDefaults.standard.set(customPrompt, forKey: kTabnineSummaryPromptKey)
+        defer { UserDefaults.standard.removeObject(forKey: kTabnineSummaryPromptKey) }
+
+        let service = TabnineSummaryService()
+        #expect(service.resolvedSummaryPrompt() == customPrompt)
+    }
+
+    @Test func resolvedProviderDefaultsToTabnineAndSupportsOpenCode() {
+        UserDefaults.standard.removeObject(forKey: kAISummaryProviderKey)
+        defer { UserDefaults.standard.removeObject(forKey: kAISummaryProviderKey) }
+
+        let service = TabnineSummaryService()
+        #expect(service.resolvedProvider() == .tabnine)
+
+        UserDefaults.standard.set(AISummaryProvider.openCode.rawValue, forKey: kAISummaryProviderKey)
+        #expect(service.resolvedProvider() == .openCode)
+    }
+
+    @Test func resolvedExecutablePathUsesProviderSpecificDefaultsAndOverrides() {
+        UserDefaults.standard.removeObject(forKey: kTabnineCLIPathKey)
+        UserDefaults.standard.removeObject(forKey: kOpenCodeCLIPathKey)
+        defer {
+            UserDefaults.standard.removeObject(forKey: kTabnineCLIPathKey)
+            UserDefaults.standard.removeObject(forKey: kOpenCodeCLIPathKey)
+        }
+
+        let service = TabnineSummaryService()
+        #expect(service.resolvedExecutablePath(for: .tabnine) == kDefaultTabnineCLIPath)
+        #expect(service.resolvedExecutablePath(for: .openCode) == kDefaultOpenCodeCLIPath)
+
+        UserDefaults.standard.set("/tmp/tabnine", forKey: kTabnineCLIPathKey)
+        UserDefaults.standard.set("/tmp/opencode", forKey: kOpenCodeCLIPathKey)
+        #expect(service.resolvedExecutablePath(for: .tabnine) == "/tmp/tabnine")
+        #expect(service.resolvedExecutablePath(for: .openCode) == "/tmp/opencode")
+    }
+
     @Test func throwsExecutableNotFoundForBogusPath() async throws {
         // Override the UserDefaults key to point at a non-existent binary
         UserDefaults.standard.set("/nonexistent/tabnine", forKey: kTabnineCLIPathKey)
-        defer { UserDefaults.standard.removeObject(forKey: kTabnineCLIPathKey) }
+        UserDefaults.standard.removeObject(forKey: kAISummaryProviderKey)
+        defer {
+            UserDefaults.standard.removeObject(forKey: kTabnineCLIPathKey)
+            UserDefaults.standard.removeObject(forKey: kAISummaryProviderKey)
+        }
 
         let service = TabnineSummaryService()
+        let recordingURL = URL(fileURLWithPath: "/tmp/test_recording.mp4")
         await #expect(throws: SummaryError.self) {
-            _ = try await service.summarise(transcript: "Hello world")
+            _ = try await service.summarise(transcript: "Hello world", recordingURL: recordingURL)
         }
     }
 
     @Test func throwsNoOutputWhenBinaryProducesNothing() async throws {
         // /usr/bin/true exits 0 but writes nothing to stdout
         UserDefaults.standard.set("/usr/bin/true", forKey: kTabnineCLIPathKey)
-        defer { UserDefaults.standard.removeObject(forKey: kTabnineCLIPathKey) }
+        UserDefaults.standard.removeObject(forKey: kAISummaryProviderKey)
+        defer {
+            UserDefaults.standard.removeObject(forKey: kTabnineCLIPathKey)
+            UserDefaults.standard.removeObject(forKey: kAISummaryProviderKey)
+        }
 
         let service = TabnineSummaryService()
+        let recordingURL = URL(fileURLWithPath: "/tmp/test_recording.mp4")
         do {
-            _ = try await service.summarise(transcript: "Some transcript")
+            _ = try await service.summarise(transcript: "Some transcript", recordingURL: recordingURL)
             Issue.record("Expected noOutput error but got success")
-        } catch SummaryError.noOutput {
+        } catch SummaryError.noOutput(.tabnine) {
             // Expected
         } catch {
             Issue.record("Unexpected error: \(error)")

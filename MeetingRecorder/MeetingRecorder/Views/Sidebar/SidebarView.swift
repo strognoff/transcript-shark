@@ -23,7 +23,7 @@ struct SidebarView: View {
     var body: some View {
         List(selection: $selection) {
             Section("Library") {
-                Label("All Meetings", systemImage: "tray.full")
+                Label("All Recordings", systemImage: "tray.full")
                     .tag(SidebarFilter.allMeetings)
                 Label("Today", systemImage: "sun.max")
                     .tag(SidebarFilter.today)
@@ -62,7 +62,7 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
-        .navigationTitle("Meeting Recorder")
+        .navigationTitle("Transcript Shark")
         .sheet(item: $renamingFolder) { folder in
             RenameSheetView(name: $renameText) {
                 folderRepo.renameFolder(folder, to: renameText)

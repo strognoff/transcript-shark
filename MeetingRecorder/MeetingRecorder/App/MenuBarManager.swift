@@ -43,7 +43,7 @@ final class MenuBarManager {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.title = "○"
         item.button?.font = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
-        item.button?.toolTip = "Meeting Recorder"
+        item.button?.toolTip = "Transcript Shark"
         statusItem = item
         rebuildMenu()
     }
@@ -62,6 +62,11 @@ final class MenuBarManager {
         appState.$autoRecordingEnabled
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.updateIcon(); self?.rebuildMenu() }
+            .store(in: &cancellables)
+
+        appState.$cameraBubbleEnabled
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.rebuildMenu() }
             .store(in: &cancellables)
 
         NotificationCenter.default.publisher(for: .potentialMeetingDetected)
@@ -116,6 +121,15 @@ final class MenuBarManager {
 
         menu.addItem(.separator())
         menu.addItem(withTitle: "Open App",   action: #selector(openApp),   keyEquivalent: "").target = self
+
+        let cameraItem = NSMenuItem(
+            title: "Camera Bubble: \(appState.cameraBubbleEnabled ? "ON" : "OFF")",
+            action: #selector(toggleCameraBubble),
+            keyEquivalent: ""
+        )
+        cameraItem.target = self
+        menu.addItem(cameraItem)
+
         menu.addItem(withTitle: "Settings…",  action: #selector(openSettings), keyEquivalent: ",").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit",       action: #selector(quitApp),   keyEquivalent: "q").target = self
@@ -126,7 +140,7 @@ final class MenuBarManager {
     // MARK: - Menu sections per state
 
     private func idleMenuItems(_ menu: NSMenu) {
-        let header = NSMenuItem(title: "○  Meeting Recorder", action: nil, keyEquivalent: "")
+        let header = NSMenuItem(title: "○  Transcript Shark", action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
         menu.addItem(.separator())
@@ -223,6 +237,13 @@ final class MenuBarManager {
     @objc private func disableAutoRecording() {
         appState.autoRecordingEnabled = false
         rebuildMenu()
+    }
+
+    @objc private func toggleCameraBubble() {
+        Task { @MainActor in
+            await appState.toggleCameraBubble()
+            rebuildMenu()
+        }
     }
 
     @objc private func resetAndRetry() {
