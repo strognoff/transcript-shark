@@ -7,6 +7,7 @@
 
 import SwiftUI
 import AVFoundation
+import AVKit
 
 struct MeetingDetailView: View {
 
@@ -30,7 +31,7 @@ struct MeetingDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 headerSection
-                audioPlayerSection
+                recordingPlayerSection
                 Divider()
                 transcriptSection
             }
@@ -126,10 +127,29 @@ struct MeetingDetailView: View {
         }
     }
 
-    // MARK: - Audio Player
+    // MARK: - Recording Player
 
-    private var audioPlayerSection: some View {
+    private var recordingPlayerSection: some View {
         VStack(spacing: 12) {
+            if let avPlayer = player.avPlayer {
+                VideoPlayer(player: avPlayer)
+                    .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                    .frame(minHeight: 220)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.secondary.opacity(0.2))
+                    }
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(.black.opacity(0.08))
+                    ProgressView()
+                }
+                .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                .frame(minHeight: 220)
+            }
+
             // Progress bar
             Slider(
                 value: $player.currentTime,

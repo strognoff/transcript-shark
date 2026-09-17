@@ -276,6 +276,24 @@ struct AudioCaptureTests {
     }
 }
 
+// MARK: - Recording Player Tests
+
+@MainActor
+struct RecordingPlayerTests {
+
+    @Test func loadingRecordingExposesAVPlayerForVideoPlayback() {
+        let viewModel = AudioPlayerViewModel()
+        let url = URL(fileURLWithPath: "/tmp/test_recording.mp4")
+
+        viewModel.load(url: url)
+
+        #expect(viewModel.avPlayer != nil)
+
+        viewModel.stop()
+        #expect(viewModel.avPlayer == nil)
+    }
+}
+
 // MARK: - RecordingSession Tests
 
 @MainActor
