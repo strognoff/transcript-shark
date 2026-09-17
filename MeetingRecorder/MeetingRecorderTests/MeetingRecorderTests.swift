@@ -8,6 +8,7 @@
 
 import Testing
 import Foundation
+import CoreGraphics
 @testable import MeetingRecorder
 
 // MARK: - Mock AudioCaptureService
@@ -63,9 +64,14 @@ final class MockCameraOverlayManager: CameraOverlayManaging {
     var selectedCameraID: String?
     var requestedStates: [Bool] = []
     var shouldShowSuccessfully = true
+    var movementConstraints: [CGRect?] = []
 
     func setSelectedCameraID(_ cameraID: String?) {
         selectedCameraID = cameraID
+    }
+
+    func setMovementConstraint(_ rect: CGRect?) {
+        movementConstraints.append(rect)
     }
 
     func setVisible(_ visible: Bool) async -> Bool {
@@ -83,8 +89,35 @@ final class MockCameraOverlayManager: CameraOverlayManaging {
     }
 }
 
+// MARK: - Mock CaptureWindowProvider
+
+@MainActor
+final class MockCaptureWindowProvider: CaptureWindowProviding {
+    var windows: [SelectableCaptureWindow] = [
+        SelectableCaptureWindow(
+            id: "window-1",
+            title: "Planning",
+            applicationName: "Notes",
+            bundleIdentifier: "com.apple.Notes",
+            frame: CGRect(x: 100, y: 120, width: 900, height: 700)
+        )
+    ]
+    var rectsByID: [String: CGRect] = [
+        "window-1": CGRect(x: 100, y: 120, width: 900, height: 700)
+    ]
+
+    func availableWindows() async -> [SelectableCaptureWindow] {
+        windows
+    }
+
+    func constraintRect(for windowID: String) async -> CGRect? {
+        rectsByID[windowID]
+    }
+}
+
 // MARK: - AppState Camera Bubble Tests
 
+@Suite(.serialized)
 @MainActor
 struct AppStateCameraBubbleTests {
 
@@ -160,6 +193,7 @@ struct AppStateCameraBubbleTests {
 
         await appState.setCameraBubbleEnabled(true)
         appState.setSelectedCameraID("usb")
+        try? await Task.sleep(nanoseconds: 100_000_000)
 
         #expect(appState.cameraBubbleEnabled)
         #expect(appState.selectedCameraID == "usb")
@@ -182,6 +216,64 @@ struct AppStateCameraBubbleTests {
         #expect(UserDefaults.standard.string(forKey: defaultsKey) == nil)
     }
 
+    @Test func selectedWindowModeAppliesCameraConstraintWhenBubbleIsVisible() async throws {
+        let captureModeKey = kRecordingCaptureModeKey
+        let selectedWindowKey = kSelectedCaptureWindowIDKey
+        UserDefaults.standard.removeObject(forKey: captureModeKey)
+        UserDefaults.standard.removeObject(forKey: selectedWindowKey)
+        defer {
+            UserDefaults.standard.removeObject(forKey: captureModeKey)
+            UserDefaults.standard.removeObject(forKey: selectedWindowKey)
+        }
+
+        let overlay = MockCameraOverlayManager()
+        let provider = MockCaptureWindowProvider()
+        let appState = AppState(cameraOverlayManager: overlay, captureWindowProvider: provider)
+
+        await appState.refreshAvailableCaptureWindows()
+        appState.setCaptureMode(.selectedWindow)
+        appState.setSelectedCaptureWindowID("window-1")
+        await appState.setCameraBubbleEnabled(true)
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        #expect(appState.captureMode == .selectedWindow)
+        #expect(UserDefaults.standard.string(forKey: captureModeKey) == RecordingCaptureMode.selectedWindow.rawValue)
+        #expect(UserDefaults.standard.string(forKey: selectedWindowKey) == "window-1")
+        #expect(overlay.movementConstraints.contains(CGRect(x: 100, y: 120, width: 900, height: 700)))
+    }
+
+    @Test func wholeScreenModeClearsCameraConstraint() async throws {
+        let overlay = MockCameraOverlayManager()
+        let provider = MockCaptureWindowProvider()
+        let appState = AppState(cameraOverlayManager: overlay, captureWindowProvider: provider)
+
+        await appState.refreshAvailableCaptureWindows()
+        appState.setCaptureMode(.selectedWindow)
+        appState.setSelectedCaptureWindowID("window-1")
+        await appState.setCameraBubbleEnabled(true)
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        appState.setCaptureMode(.wholeScreen)
+
+        #expect(appState.captureMode == .wholeScreen)
+        #expect(overlay.movementConstraints.contains { $0 == nil })
+    }
+
+}
+
+// MARK: - AudioCapture Tests
+
+struct AudioCaptureTests {
+
+    @Test func tccDeclinedMessageIsTreatedAsPermissionError() {
+        let error = NSError(
+            domain: "com.apple.ScreenCaptureKit.SCStreamErrorDomain",
+            code: -3801,
+            userInfo: [NSLocalizedDescriptionKey: "The user declined TCCs for application, window, display capture"]
+        )
+
+        #expect(AudioCapture.isScreenCapturePermissionError(error))
+    }
 }
 
 // MARK: - RecordingSession Tests
@@ -223,14 +315,22 @@ struct RecordingSessionTests {
 @MainActor
 struct RecordingCoordinatorTests {
 
-    func makeCoordinator() -> (RecordingCoordinator, MockAudioCaptureService) {
+    func makeCoordinator() -> (RecordingCoordinator, MockAudioCaptureService, CapturedScopeBox) {
         let mock = MockAudioCaptureService()
-        let coordinator = RecordingCoordinator(makeCaptureService: { _ in mock })
-        return (coordinator, mock)
+        let box = CapturedScopeBox()
+        let coordinator = RecordingCoordinator(makeCaptureService: { _, scope in
+            box.scope = scope
+            return mock
+        })
+        return (coordinator, mock, box)
+    }
+
+    final class CapturedScopeBox {
+        var scope: RecordingCaptureScope?
     }
 
     @Test func startsInIdleState() {
-        let (coordinator, _) = makeCoordinator()
+        let (coordinator, _, _) = makeCoordinator()
         guard case .idle = coordinator.recorderState else {
             Issue.record("Expected idle state")
             return
@@ -238,7 +338,7 @@ struct RecordingCoordinatorTests {
     }
 
     @Test func transitionsToRecordingOnStart() async {
-        let (coordinator, mock) = makeCoordinator()
+        let (coordinator, mock, _) = makeCoordinator()
         await coordinator.startRecording()
 
         guard case .recording = coordinator.recorderState else {
@@ -249,8 +349,22 @@ struct RecordingCoordinatorTests {
         #expect(startCalled)
     }
 
+    @Test func passesCaptureScopeToFactory() async {
+        let (coordinator, _, box) = makeCoordinator()
+        await coordinator.startRecording(captureScope: .selectedWindow(windowID: "window-1"))
+
+        #expect(box.scope == .selectedWindow(windowID: "window-1"))
+    }
+
+    @Test func defaultsCaptureScopeToWholeScreen() async {
+        let (coordinator, _, box) = makeCoordinator()
+        await coordinator.startRecording()
+
+        #expect(box.scope == .wholeScreen)
+    }
+
     @Test func transitionsToFinishedOnStop() async {
-        let (coordinator, mock) = makeCoordinator()
+        let (coordinator, mock, _) = makeCoordinator()
         await coordinator.startRecording()
         await coordinator.stopRecording()
 
@@ -263,7 +377,7 @@ struct RecordingCoordinatorTests {
     }
 
     @Test func guardAgainstDoubleStart() async {
-        let (coordinator, mock) = makeCoordinator()
+        let (coordinator, mock, _) = makeCoordinator()
         await coordinator.startRecording()
         await coordinator.startRecording() // second call — should be ignored
 
@@ -279,7 +393,7 @@ struct RecordingCoordinatorTests {
     @Test func transitionsToFailedOnStartError() async {
         let mock = MockAudioCaptureService()
         mock.shouldThrowOnStart = true
-        let coordinator = RecordingCoordinator(makeCaptureService: { _ in mock })
+        let coordinator = RecordingCoordinator(makeCaptureService: { _, _ in mock })
 
         await coordinator.startRecording()
 
@@ -290,7 +404,7 @@ struct RecordingCoordinatorTests {
     }
 
     @Test func resetReturnsToIdle() async {
-        let (coordinator, _) = makeCoordinator()
+        let (coordinator, _, _) = makeCoordinator()
         await coordinator.startRecording()
         await coordinator.stopRecording()
         coordinator.reset()
@@ -395,8 +509,28 @@ struct SpeakerAttributionTests {
     }
 }
 
+// MARK: - Meeting Mapping Tests
+
+@MainActor
+struct MeetingMappingTests {
+
+    @Test func meetingRecordMapsSummaryPromptOverride() {
+        let record = MeetingRecord(
+            title: "Prompt Test",
+            startedAt: Date(timeIntervalSince1970: 1_000),
+            recordingPath: "Recordings/test.mp4",
+            summaryPromptOverride: "Focus on decisions."
+        )
+
+        let meeting = record.toMeeting(baseURL: URL(fileURLWithPath: "/tmp/MeetingRecorder"))
+
+        #expect(meeting.summaryPromptOverride == "Focus on decisions.")
+    }
+}
+
 // MARK: - Summary Service Tests
 
+@Suite(.serialized)
 struct SummaryServiceTests {
 
     @Test func resolvedSummaryPromptUsesDefaultWhenUnsetOrBlank() {
@@ -417,6 +551,31 @@ struct SummaryServiceTests {
 
         let service = TabnineSummaryService()
         #expect(service.resolvedSummaryPrompt() == customPrompt)
+    }
+
+    @Test func resolvedSummaryPromptUsesRecordingOverrideBeforeGlobalPrompt() {
+        UserDefaults.standard.set("Global prompt", forKey: kTabnineSummaryPromptKey)
+        defer { UserDefaults.standard.removeObject(forKey: kTabnineSummaryPromptKey) }
+
+        let service = TabnineSummaryService()
+
+        #expect(service.resolvedSummaryPrompt(override: "  Recording prompt  ") == "Recording prompt")
+        #expect(service.resolvedSummaryPrompt(override: " \n\t ") == "Global prompt")
+    }
+
+    @Test func tabnineArgumentsUseEffectivePromptWithoutTranscriptArgument() {
+        let service = TabnineSummaryService()
+        let arguments = service.arguments(for: .tabnine, prompt: "Recording prompt", transcript: "Sensitive transcript")
+
+        #expect(arguments.contains("Recording prompt"))
+        #expect(!arguments.contains("Sensitive transcript"))
+    }
+
+    @Test func openCodeArgumentsIncludeEffectivePromptAndTranscript() {
+        let service = TabnineSummaryService()
+        let arguments = service.arguments(for: .openCode, prompt: "Recording prompt", transcript: "Transcript body")
+
+        #expect(arguments.last == "Recording prompt\n\nTranscript:\nTranscript body")
     }
 
     @Test func resolvedProviderDefaultsToTabnineAndSupportsOpenCode() {

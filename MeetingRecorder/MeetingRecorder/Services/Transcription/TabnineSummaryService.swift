@@ -132,6 +132,16 @@ actor TabnineSummaryService {
 
     /// Resolves the summary instructions sent to the selected provider, using the default when no custom prompt is configured.
     nonisolated func resolvedSummaryPrompt() -> String {
+        resolvedSummaryPrompt(override: nil)
+    }
+
+    /// Resolves summary instructions, preferring a nonblank per-recording override over the global prompt.
+    nonisolated func resolvedSummaryPrompt(override promptOverride: String?) -> String {
+        let override = promptOverride?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !override.isEmpty {
+            return override
+        }
+
         let stored = UserDefaults.standard.string(forKey: kTabnineSummaryPromptKey) ?? ""
         let trimmed = stored.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? kDefaultTabnineSummaryPrompt : trimmed
@@ -147,9 +157,11 @@ actor TabnineSummaryService {
     /// - Parameters:
     ///   - transcript: The full transcript text to summarise.
     ///   - recordingURL: The recording's audio file URL — used to derive the save path.
-    func summarise(transcript: String, recordingURL: URL) async throws -> String {
+    ///   - promptOverride: Optional per-recording instructions that override the global prompt when nonblank.
+    func summarise(transcript: String, recordingURL: URL, promptOverride: String? = nil) async throws -> String {
         let provider = resolvedProvider()
         let executablePath = resolvedExecutablePath(for: provider)
+        let prompt = resolvedSummaryPrompt(override: promptOverride)
 
         guard FileManager.default.isExecutableFile(atPath: executablePath) else {
             logger.error("TabnineSummaryService: \(provider.displayName) binary not found at \(executablePath)")
@@ -160,6 +172,7 @@ actor TabnineSummaryService {
         let output = try await runProcess(
             provider: provider,
             executable: executablePath,
+            prompt: prompt,
             transcript: transcript
         )
 
@@ -177,11 +190,11 @@ actor TabnineSummaryService {
 
     // MARK: - Helpers
 
-    private func runProcess(provider: AISummaryProvider, executable: String, transcript: String) async throws -> String {
+    private func runProcess(provider: AISummaryProvider, executable: String, prompt: String, transcript: String) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
             let process = Process()
             process.executableURL = URL(fileURLWithPath: executable)
-            process.arguments = arguments(for: provider, transcript: transcript)
+            process.arguments = arguments(for: provider, prompt: prompt, transcript: transcript)
             process.environment = Self.enrichedEnvironment()
 
             let stdinPipe: Pipe?
@@ -223,12 +236,12 @@ actor TabnineSummaryService {
         }
     }
 
-    private func arguments(for provider: AISummaryProvider, transcript: String) -> [String] {
+    nonisolated func arguments(for provider: AISummaryProvider, prompt: String, transcript: String) -> [String] {
         switch provider {
         case .tabnine:
             return [
                 "--skip-trust",
-                "--prompt", resolvedSummaryPrompt(),
+                "--prompt", prompt,
                 "-o", "text",
             ]
         case .openCode:
@@ -236,7 +249,7 @@ actor TabnineSummaryService {
                 "run",
                 "--format", "default",
                 "--title", "Transcript Shark Summary",
-                resolvedSummaryPrompt() + "\n\nTranscript:\n" + transcript,
+                prompt + "\n\nTranscript:\n" + transcript,
             ]
         }
     }

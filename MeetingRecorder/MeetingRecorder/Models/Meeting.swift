@@ -16,7 +16,8 @@ struct Meeting: Identifiable, Sendable, Hashable {
         lhs.id == rhs.id &&
         lhs.transcriptionStatus == rhs.transcriptionStatus &&
         lhs.transcriptURL == rhs.transcriptURL &&
-        lhs.title == rhs.title
+        lhs.title == rhs.title &&
+        lhs.summaryPromptOverride == rhs.summaryPromptOverride
     }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
     let id: UUID
@@ -28,6 +29,7 @@ struct Meeting: Identifiable, Sendable, Hashable {
     var transcriptURL: URL?
     var transcriptionStatus: TranscriptionStatus
     var folderID: UUID?
+    var summaryPromptOverride: String?
 
     var duration: TimeInterval? {
         guard let endedAt else { return nil }

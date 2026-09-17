@@ -50,20 +50,20 @@ final class RecordingCoordinator: ObservableObject {
     // MARK: - Private
 
     /// Factory — injected so tests can substitute a mock AudioCaptureService.
-    private let makeCaptureService: (URL) -> AudioCaptureService
+    private let makeCaptureService: (URL, RecordingCaptureScope) -> AudioCaptureService
 
     private var captureService: AudioCaptureService?
     private var timer: AnyCancellable?
 
     // MARK: - Init
 
-    init(makeCaptureService: @escaping (URL) -> AudioCaptureService = { AudioCapture(outputURL: $0) }) {
+    init(makeCaptureService: @escaping (URL, RecordingCaptureScope) -> AudioCaptureService = { AudioCapture(outputURL: $0, captureScope: $1) }) {
         self.makeCaptureService = makeCaptureService
     }
 
     // MARK: - Start
 
-    func startRecording(application: String = "Manual") async {
+    func startRecording(application: String = "Manual", captureScope: RecordingCaptureScope = .wholeScreen) async {
         // Auto-reset from .finished / .failed so manual recordings don't get stuck
         switch recorderState {
         case .finished, .failed:
@@ -81,7 +81,7 @@ final class RecordingCoordinator: ObservableObject {
             // Use a single UUID for both the filename and the session ID
             let sessionID = UUID()
             let outputURL = try sessionURL(id: sessionID)
-            let service = makeCaptureService(outputURL)
+            let service = makeCaptureService(outputURL, captureScope)
             captureService = service
 
             let session = RecordingSession(id: sessionID, outputURL: outputURL, meetingApplication: application)

@@ -273,8 +273,9 @@ Settings → AI Summary supports:
 - provider selection;
 - provider-specific executable path;
 - executable status indicator;
-- custom summary instructions;
-- reset to default prompt.
+- global custom summary instructions;
+- reset to default prompt;
+- per-recording prompt overrides from the AI Summary panel.
 
 Default prompt:
 
@@ -312,7 +313,7 @@ The camera bubble is optional and manually controlled.
 | Tab | Scope |
 |---|---|
 | General | Launch at login, auto-recording, startup screen, notifications |
-| Recording | Microphone info, camera bubble, camera picker |
+| Recording | Capture area, selected window, microphone info, camera bubble, camera picker |
 | Transcription | Auto-transcribe, language |
 | Storage | Recording folder, Finder shortcut, retention placeholder |
 | Privacy | Screen Recording, Microphone, Camera permission status |

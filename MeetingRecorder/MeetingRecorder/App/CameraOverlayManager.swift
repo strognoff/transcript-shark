@@ -19,12 +19,13 @@ protocol CameraOverlayManaging: AnyObject {
     var isVisible: Bool { get }
     var availableCameras: [CameraDevice] { get }
     func setSelectedCameraID(_ cameraID: String?)
+    func setMovementConstraint(_ rect: CGRect?)
     func setVisible(_ visible: Bool) async -> Bool
     func hide()
 }
 
 @MainActor
-final class CameraOverlayManager: CameraOverlayManaging {
+final class CameraOverlayManager: NSObject, CameraOverlayManaging {
 
     private let logger = Logger(subsystem: "com.transcript-shark.MeetingRecorder", category: "CameraOverlayManager")
     private let bubbleSize = CGSize(width: 176, height: 176)
@@ -34,6 +35,7 @@ final class CameraOverlayManager: CameraOverlayManaging {
     private var captureSession: AVCaptureSession?
     private var previewLayer: AVCaptureVideoPreviewLayer?
     private var selectedCameraID: String?
+    private var movementConstraint: CGRect?
 
     var isVisible: Bool {
         window?.isVisible == true
@@ -47,6 +49,16 @@ final class CameraOverlayManager: CameraOverlayManaging {
 
     func setSelectedCameraID(_ cameraID: String?) {
         selectedCameraID = cameraID
+    }
+
+    func setMovementConstraint(_ rect: CGRect?) {
+        guard let rect, rect.width >= bubbleSize.width, rect.height >= bubbleSize.height else {
+            movementConstraint = nil
+            return
+        }
+
+        movementConstraint = rect
+        clampWindowToConstraint()
     }
 
     @discardableResult
@@ -63,6 +75,7 @@ final class CameraOverlayManager: CameraOverlayManaging {
         captureSession?.stopRunning()
         captureSession = nil
         previewLayer = nil
+        window?.delegate = nil
         window?.orderOut(nil)
         window = nil
     }
@@ -164,18 +177,49 @@ final class CameraOverlayManager: CameraOverlayManaging {
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         window.ignoresMouseEvents = false
         window.isMovableByWindowBackground = true
+        window.delegate = self
         return window
     }
 
     private func positionWindow(_ window: NSWindow) {
-        let screen = NSScreen.main ?? NSScreen.screens.first
-        guard let visibleFrame = screen?.visibleFrame else { return }
+        let bounds = movementConstraint ?? NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame
+        guard let bounds else { return }
 
         let origin = NSPoint(
-            x: visibleFrame.maxX - bubbleSize.width - screenInset,
-            y: visibleFrame.minY + screenInset
+            x: bounds.maxX - bubbleSize.width - screenInset,
+            y: bounds.minY + screenInset
         )
-        window.setFrame(NSRect(origin: origin, size: bubbleSize), display: true)
+        window.setFrame(clampedFrame(NSRect(origin: origin, size: bubbleSize), in: bounds), display: true)
+    }
+
+    private func clampWindowToConstraint() {
+        guard let window, let movementConstraint else { return }
+        let clamped = clampedFrame(window.frame, in: movementConstraint)
+        guard clamped != window.frame else { return }
+        window.setFrame(clamped, display: true)
+    }
+
+    private func clampedFrame(_ frame: NSRect, in bounds: CGRect) -> NSRect {
+        let insetBounds = bounds.insetBy(dx: screenInset, dy: screenInset)
+        let usableBounds = insetBounds.width >= bubbleSize.width && insetBounds.height >= bubbleSize.height ? insetBounds : bounds
+
+        let minX = usableBounds.minX
+        let maxX = usableBounds.maxX - frame.width
+        let minY = usableBounds.minY
+        let maxY = usableBounds.maxY - frame.height
+
+        let clampedX = min(max(frame.origin.x, minX), maxX)
+        let clampedY = min(max(frame.origin.y, minY), maxY)
+
+        return NSRect(origin: NSPoint(x: clampedX, y: clampedY), size: frame.size)
+    }
+}
+
+extension CameraOverlayManager: NSWindowDelegate {
+    nonisolated func windowDidMove(_ notification: Notification) {
+        Task { @MainActor [weak self] in
+            self?.clampWindowToConstraint()
+        }
     }
 }
 

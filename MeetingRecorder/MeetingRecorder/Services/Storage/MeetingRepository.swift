@@ -183,6 +183,20 @@ final class MeetingRepository {
         }
     }
 
+    func updateSummaryPromptOverride(_ meeting: Meeting, prompt: String?) {
+        guard let record = fetchRecord(id: meeting.id) else { return }
+        let trimmed = prompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let storedPrompt = trimmed.isEmpty ? nil : trimmed
+
+        record.summaryPromptOverride = storedPrompt
+        record.updatedAt = Date()
+        try? context.save()
+
+        if let idx = meetings.firstIndex(where: { $0.id == meeting.id }) {
+            meetings[idx].summaryPromptOverride = storedPrompt
+        }
+    }
+
     func meetings(inFolder folderID: UUID) -> [Meeting] {
         meetings.filter { $0.folderID == folderID }
     }

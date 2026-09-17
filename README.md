@@ -1,5 +1,9 @@
 # Transcript Shark
 
+<p align="center">
+  <img src="screenshots/logo.png" alt="Transcript Shark logo" width="160">
+</p>
+
 Transcript Shark is a native macOS menu bar app for recording, transcribing, organising, and summarising audio from calls, streams, interviews, demos, podcasts, and meetings.
 
 It records your microphone and system audio, generates speaker-labelled transcripts, keeps everything local on your Mac, and can generate AI summaries with your choice of local CLI provider: **Tabnine** or **OpenCode**.
@@ -33,9 +37,10 @@ It records your microphone and system audio, generates speaker-labelled transcri
 - Saves recordings locally with transcripts and optional summaries.
 - Organises recordings by folder, date, and search.
 - Lets you rename recordings so titles are meaningful.
-- Provides a camera bubble overlay with selectable camera input.
+- Lets you record the whole screen or a selected window.
+- Provides a camera bubble overlay with selectable camera input; selected-window recordings constrain the bubble to that window.
 - Generates AI summaries using a local provider: Tabnine or OpenCode.
-- Lets you customise the prompt sent to the AI provider.
+- Lets you customise the global AI prompt and override it per recording.
 
 All data stays on your Mac. Transcript Shark does not upload audio, transcripts, or summaries to its own servers.
 
@@ -58,7 +63,7 @@ All data stays on your Mac. Transcript Shark does not upload audio, transcripts,
 | Permission | Why |
 |---|---|
 | **Microphone** | Records your voice |
-| **Screen Recording** | Captures system audio only; screen video is not stored |
+| **Screen Recording** | Captures system audio and the configured whole-screen or selected-window recording area |
 | **Camera** | Shows the optional camera bubble overlay |
 | **Notifications** | Notifies when recording/transcription status changes |
 
@@ -124,10 +129,13 @@ When auto-recording is enabled, Transcript Shark monitors Microsoft Teams signal
 
 ### Camera bubble
 
+Go to **Settings → Recording** to choose whether new recordings capture the whole screen or one selected window. If the selected window is unavailable when recording starts, Transcript Shark falls back to the whole screen.
+
 Go to **Settings → Recording → Camera Bubble** to:
 
 - Manually show/hide the camera bubble.
 - Choose **Automatic**, built-in camera, or a connected USB camera.
+- Keep the bubble inside the selected window while selected-window mode is active and the window is available.
 
 The bubble appears as a small circular preview in the bottom-right corner of the screen. Background blur was removed for stability and is not currently available.
 
@@ -235,8 +243,9 @@ Configure this in **Settings → AI Summary**:
 
 - Choose **Tabnine** or **OpenCode**.
 - Set the provider executable path.
-- Edit the summary instructions/prompt.
-- Reset the prompt to the default.
+- Edit the global summary instructions/prompt.
+- Reset the global prompt to the default.
+- Override the prompt for an individual recording from its AI Summary panel.
 
 Example custom prompt:
 
@@ -261,7 +270,7 @@ Open via **Settings…** in the menu bar or `⌘,`.
 | Tab | What you can configure |
 |---|---|
 | **General** | Launch at login, auto-recording, startup screen, notifications |
-| **Recording** | Microphone info, camera bubble, camera selection |
+| **Recording** | Capture area, selected window, microphone info, camera bubble, camera selection |
 | **Transcription** | Auto-transcribe after recording, language |
 | **Storage** | Recording location, open in Finder, retention policy placeholder |
 | **Privacy** | Screen Recording, Microphone, and Camera permission status |
@@ -379,7 +388,7 @@ Shipped/current:
 - Recording rename
 - Camera bubble with camera selection
 - AI Summary with Tabnine/OpenCode provider selection
-- Custom summary prompt
+- Global and per-recording custom summary prompts
 - Menu bar controls
 
 Possible future work:

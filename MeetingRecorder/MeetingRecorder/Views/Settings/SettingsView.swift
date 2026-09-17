@@ -159,6 +159,8 @@ private struct GeneralSettingsTab: View {
 
 private struct RecordingSettingsTab: View {
 
+    @ObservedObject private var appState = AppState.shared
+
     var body: some View {
         Form {
             Section("Microphone") {
@@ -171,29 +173,67 @@ private struct RecordingSettingsTab: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Capture Area") {
+                Picker("Record", selection: Binding(
+                    get: { appState.captureMode },
+                    set: { appState.setCaptureMode($0) }
+                )) {
+                    ForEach(RecordingCaptureMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .help("Choose whether new recordings capture the whole screen or one selected window.")
+
+                if appState.captureMode == .selectedWindow {
+                    Picker("Window", selection: Binding(
+                        get: { appState.selectedCaptureWindowID ?? "" },
+                        set: { appState.setSelectedCaptureWindowID($0.isEmpty ? nil : $0) }
+                    )) {
+                        Text("Choose a window").tag("")
+                        ForEach(appState.availableCaptureWindows) { window in
+                            Text(window.displayName).tag(window.id)
+                        }
+                    }
+                    .disabled(appState.availableCaptureWindows.isEmpty)
+
+                    Button {
+                        Task { @MainActor in
+                            await appState.refreshAvailableCaptureWindows()
+                        }
+                    } label: {
+                        Label("Refresh Windows", systemImage: "arrow.clockwise")
+                    }
+
+                    Text("If the selected window is unavailable when recording starts, Transcript Shark records the whole screen. When the camera bubble is on, it stays inside the selected window while that window is available.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Section("Camera Bubble") {
                 Toggle("Show camera bubble", isOn: Binding(
-                    get: { AppState.shared.cameraBubbleEnabled },
+                    get: { appState.cameraBubbleEnabled },
                     set: { newValue in
                         Task { @MainActor in
-                            await AppState.shared.setCameraBubbleEnabled(newValue)
+                            await appState.setCameraBubbleEnabled(newValue)
                         }
                     }
                 ))
                 .help("Manually show a circular camera preview in the bottom-right corner of the screen.")
 
                 Picker("Camera", selection: Binding(
-                    get: { AppState.shared.selectedCameraID ?? "" },
+                    get: { appState.selectedCameraID ?? "" },
                     set: { newValue in
-                        AppState.shared.setSelectedCameraID(newValue.isEmpty ? nil : newValue)
+                        appState.setSelectedCameraID(newValue.isEmpty ? nil : newValue)
                     }
                 )) {
                     Text("Automatic").tag("")
-                    ForEach(AppState.shared.availableCameras) { camera in
+                    ForEach(appState.availableCameras) { camera in
                         Text(camera.localizedName).tag(camera.id)
                     }
                 }
-                .disabled(AppState.shared.availableCameras.isEmpty)
+                .disabled(appState.availableCameras.isEmpty)
                 .help("Choose which camera is used by the camera bubble. Select your USB camera here.")
             }
 
@@ -208,7 +248,12 @@ private struct RecordingSettingsTab: View {
             }
         }
         .formStyle(.grouped)
-        .onAppear { AppState.shared.refreshAvailableCameras() }
+        .onAppear {
+            appState.refreshAvailableCameras()
+            Task { @MainActor in
+                await appState.refreshAvailableCaptureWindows()
+            }
+        }
     }
 }
 

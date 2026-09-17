@@ -24,6 +24,7 @@ final class AudioCapture: NSObject, AudioCaptureService {
     private let logger = Logger(subsystem: "com.transcript-shark.MeetingRecorder", category: "AudioCapture")
 
     let outputURL: URL
+    private let captureScope: RecordingCaptureScope
     private var stream: SCStream?
     private var recordingOutput: SCRecordingOutput?
     private var isStopping = false
@@ -37,8 +38,9 @@ final class AudioCapture: NSObject, AudioCaptureService {
         qos: .userInitiated
     )
 
-    init(outputURL: URL) {
+    init(outputURL: URL, captureScope: RecordingCaptureScope = .wholeScreen) {
         self.outputURL = outputURL
+        self.captureScope = captureScope
         super.init()
     }
 
@@ -48,28 +50,26 @@ final class AudioCapture: NSObject, AudioCaptureService {
         logger.info("AudioCapture: requesting screen content")
         let content: SCShareableContent
         do {
-            content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+            content = try await ScreenCaptureWindowProvider.shareableContent(onScreenWindowsOnly: false)
         } catch {
-            let msg = error.localizedDescription.lowercased()
-            if msg.contains("permission") || msg.contains("denied") || msg.contains("not authorized")
-                || (error as NSError).code == 7 /* SCStreamErrorCode.userDeclined */ {
+            if Self.isScreenCapturePermissionError(error) {
                 logger.error("AudioCapture: permission denied — \(error.localizedDescription)")
                 throw AudioCaptureError.permissionDenied
             }
             throw error
         }
         logger.info("AudioCapture: got \(content.displays.count) display(s)")
-        guard let display = content.displays.first else { throw AudioCaptureError.noDisplayFound }
 
-        let filter = SCContentFilter(display: display, excludingWindows: [])
+        let target = try captureTarget(from: content)
+        let filter = target.filter
         let config = SCStreamConfiguration()
         config.capturesAudio    = true   // system audio (Teams, other apps)
         config.captureMicrophone = true  // default microphone (me)
         // No microphoneCaptureDeviceID — uses system default microphone
         config.sampleRate    = 48000
         config.channelCount  = 2
-        config.width  = 1280
-        config.height = 720
+        config.width  = target.width
+        config.height = target.height
         config.minimumFrameInterval = CMTime(value: 1, timescale: 5)
 
         logger.info("🎙 Microphone capture enabled (system default device)")
@@ -124,6 +124,55 @@ final class AudioCapture: NSObject, AudioCaptureService {
         self.recordingOutput = nil
         self.sidecarRecorder = nil
         logger.info("AudioCapture: stopped")
+    }
+
+    // MARK: - Capture target
+
+    private struct CaptureTarget {
+        let filter: SCContentFilter
+        let width: Int
+        let height: Int
+    }
+
+    private func captureTarget(from content: SCShareableContent) throws -> CaptureTarget {
+        switch captureScope {
+        case .wholeScreen:
+            return try wholeScreenTarget(from: content)
+
+        case .selectedWindow(let windowID, let fallbackToWholeScreen):
+            if let window = ScreenCaptureWindowProvider.window(matching: windowID, in: content) {
+                let frame = window.frame
+                logger.info("AudioCapture: using selected-window capture")
+                return CaptureTarget(
+                    filter: SCContentFilter(desktopIndependentWindow: window),
+                    width: max(2, Int(frame.width.rounded(.up))),
+                    height: max(2, Int(frame.height.rounded(.up)))
+                )
+            }
+
+            guard fallbackToWholeScreen else { throw AudioCaptureError.selectedWindowUnavailable }
+            logger.warning("AudioCapture: selected window unavailable — falling back to whole-screen capture")
+            return try wholeScreenTarget(from: content)
+        }
+    }
+
+    private func wholeScreenTarget(from content: SCShareableContent) throws -> CaptureTarget {
+        guard let display = content.displays.first else { throw AudioCaptureError.noDisplayFound }
+        return CaptureTarget(
+            filter: SCContentFilter(display: display, excludingWindows: []),
+            width: 1280,
+            height: 720
+        )
+    }
+
+    nonisolated static func isScreenCapturePermissionError(_ error: Error) -> Bool {
+        let message = error.localizedDescription.lowercased()
+        return message.contains("permission")
+            || message.contains("denied")
+            || message.contains("declined")
+            || message.contains("tcc")
+            || message.contains("not authorized")
+            || (error as NSError).code == 7 /* SCStreamErrorCode.userDeclined */
     }
 
     // MARK: - Meeting audio device info (Phase 2)
@@ -234,6 +283,7 @@ extension AudioCapture: SCRecordingOutputDelegate {
 enum AudioCaptureError: LocalizedError {
     case noDisplayFound
     case permissionDenied
+    case selectedWindowUnavailable
 
     nonisolated var errorDescription: String? {
         switch self {
@@ -241,6 +291,8 @@ enum AudioCaptureError: LocalizedError {
             return "No display found for audio capture."
         case .permissionDenied:
             return "Screen Recording permission is required to capture audio. Please grant access in System Settings > Privacy & Security > Screen Recording."
+        case .selectedWindowUnavailable:
+            return "The selected capture window is no longer available."
         }
     }
 }

@@ -119,7 +119,14 @@ struct LibraryView: View {
 
                     SummaryPanelView(
                         transcriptContent: selectedMeetingTranscript,
-                        recordingURL: meeting.recordingURL
+                        recordingURL: meeting.recordingURL,
+                        promptOverride: meeting.summaryPromptOverride,
+                        onPromptOverrideChange: { prompt in
+                            repo.updateSummaryPromptOverride(meeting, prompt: prompt)
+                            if let updated = repo.meetings.first(where: { $0.id == meeting.id }) {
+                                selectedMeeting = updated
+                            }
+                        }
                     )
                     .frame(minWidth: 280, idealWidth: 340)
                 }

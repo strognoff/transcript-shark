@@ -29,6 +29,9 @@ final class MeetingRecord {
     // MARK: - Transcription
     var transcriptionStatusRaw: String  // "pending" | "processing" | "completed" | "failed:<msg>"
 
+    // MARK: - AI Summary
+    var summaryPromptOverride: String?
+
     // MARK: - Folder (Milestone 7)
     var folderID: UUID?
 
@@ -45,6 +48,7 @@ final class MeetingRecord {
         recordingPath: String,
         transcriptPath: String? = nil,
         transcriptionStatusRaw: String = "pending",
+        summaryPromptOverride: String? = nil,
         folderID: UUID? = nil
     ) {
         self.id = id
@@ -55,6 +59,7 @@ final class MeetingRecord {
         self.recordingPath = recordingPath
         self.transcriptPath = transcriptPath
         self.transcriptionStatusRaw = transcriptionStatusRaw
+        self.summaryPromptOverride = summaryPromptOverride
         self.folderID = folderID
         self.createdAt = Date()
         self.updatedAt = Date()
@@ -75,7 +80,8 @@ final class MeetingRecord {
             recordingURL: recordingURL,
             transcriptURL: transcriptURL,
             transcriptionStatus: TranscriptionStatus(rawString: transcriptionStatusRaw),
-            folderID: folderID
+            folderID: folderID,
+            summaryPromptOverride: summaryPromptOverride
         )
     }
 
@@ -88,6 +94,7 @@ final class MeetingRecord {
             $0.path.replacingOccurrences(of: baseURL.path + "/", with: "")
         }
         transcriptionStatusRaw = meeting.transcriptionStatus.rawString
+        summaryPromptOverride = meeting.summaryPromptOverride
         updatedAt = Date()
     }
 }

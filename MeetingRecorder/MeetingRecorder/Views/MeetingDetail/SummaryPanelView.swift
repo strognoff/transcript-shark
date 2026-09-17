@@ -2,8 +2,8 @@
 //  SummaryPanelView.swift
 //  MeetingRecorder
 //
-//  Right-side "4th panel" — on-demand AI summary powered by the local Tabnine CLI.
-//  State is transient (not persisted). Clears automatically when the transcript changes.
+//  Right-side "4th panel" — on-demand AI summary powered by the configured local AI CLI.
+//  Summaries are persisted next to recordings; prompt overrides are stored per recording.
 //
 
 import SwiftUI
@@ -25,24 +25,37 @@ struct SummaryPanelView: View {
     let transcriptContent: String
     /// The recording audio file URL — used to derive the persisted summary path.
     let recordingURL: URL
+    /// Optional per-recording prompt override. Blank values fall back to the global prompt.
+    let promptOverride: String?
+    /// Persists prompt override changes for this recording.
+    let onPromptOverrideChange: (String?) -> Void
 
     @State private var state: SummaryState = .idle
     @State private var summaryElapsed: TimeInterval = 0
+    @State private var isPromptEditorExpanded = false
+    @State private var promptDraft: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
+            promptOverrideEditor
+            Divider()
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .onAppear {
+            promptDraft = promptOverride ?? ""
             loadPersistedSummaryIfNeeded()
         }
         .onChange(of: recordingURL) { _, _ in
             // Switching to a different meeting — try to load its persisted summary
             state = .idle
+            promptDraft = promptOverride ?? ""
             loadPersistedSummaryIfNeeded()
+        }
+        .onChange(of: promptOverride) { _, newValue in
+            promptDraft = newValue ?? ""
         }
     }
 
@@ -64,6 +77,68 @@ struct SummaryPanelView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+
+    // MARK: - Prompt override
+
+    private var promptOverrideEditor: some View {
+        DisclosureGroup(isExpanded: $isPromptEditorExpanded) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Custom instructions saved here override the global AI Summary prompt for this recording only.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                TextEditor(text: $promptDraft)
+                    .font(.callout)
+                    .frame(minHeight: 92)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.secondary.opacity(0.25))
+                    )
+
+                HStack(spacing: 8) {
+                    Button("Save Override") {
+                        savePromptOverride()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(!hasPromptDraftChanged)
+
+                    Button("Use Global Prompt") {
+                        promptDraft = ""
+                        onPromptOverrideChange(nil)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled((promptOverride ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && promptDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .padding(.top, 8)
+        } label: {
+            HStack {
+                Text("Prompt Override")
+                    .font(.subheadline.weight(.medium))
+                Spacer()
+                Text(hasSavedPromptOverride ? "Custom" : "Global")
+                    .font(.caption)
+                    .foregroundStyle(hasSavedPromptOverride ? .purple : .secondary)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    private var hasSavedPromptOverride: Bool {
+        !(promptOverride ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var hasPromptDraftChanged: Bool {
+        promptDraft.trimmingCharacters(in: .whitespacesAndNewlines) != (promptOverride ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func savePromptOverride() {
+        let trimmed = promptDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        onPromptOverrideChange(trimmed.isEmpty ? nil : trimmed)
     }
 
     // MARK: - Content
@@ -88,7 +163,7 @@ struct SummaryPanelView: View {
                 .font(.system(size: 40))
                 .foregroundStyle(.purple.opacity(0.4))
 
-            Text("Generate a summary using your AI Summary instructions from Settings.")
+            Text("Generate a summary using the prompt for this recording, or the global AI Summary instructions from Settings.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -194,12 +269,21 @@ struct SummaryPanelView: View {
     // MARK: - Action
 
     private func startSummary() {
+        if hasPromptDraftChanged {
+            savePromptOverride()
+        }
+
         state = .loading
         let transcript = transcriptContent
         let url = recordingURL
+        let override = promptDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         Task {
             do {
-                let summary = try await TabnineSummaryService.shared.summarise(transcript: transcript, recordingURL: url)
+                let summary = try await TabnineSummaryService.shared.summarise(
+                    transcript: transcript,
+                    recordingURL: url,
+                    promptOverride: override.isEmpty ? nil : override
+                )
                 state = .done(summary)
             } catch {
                 state = .failed(error.localizedDescription)
