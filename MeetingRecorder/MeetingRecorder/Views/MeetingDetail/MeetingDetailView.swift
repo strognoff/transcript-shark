@@ -131,102 +131,141 @@ struct MeetingDetailView: View {
 
     private var recordingPlayerSection: some View {
         VStack(spacing: 12) {
-            if let avPlayer = player.avPlayer {
-                VideoPlayer(player: avPlayer)
+            if !meeting.recordingFileExists || player.loadError != nil {
+                unavailableRecordingView
+            } else {
+                if let avPlayer = player.avPlayer {
+                    VideoPlayer(player: avPlayer)
+                        .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                        .frame(minHeight: 220)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(Color.secondary.opacity(0.2))
+                        }
+                } else {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(.black.opacity(0.08))
+                        ProgressView()
+                    }
                     .aspectRatio(16.0 / 9.0, contentMode: .fit)
                     .frame(minHeight: 220)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(Color.secondary.opacity(0.2))
-                    }
-            } else {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(.black.opacity(0.08))
-                    ProgressView()
                 }
-                .aspectRatio(16.0 / 9.0, contentMode: .fit)
-                .frame(minHeight: 220)
-            }
 
-            // Progress bar
-            Slider(
-                value: $player.currentTime,
-                in: 0...(player.duration > 0 ? player.duration : 1),
-                onEditingChanged: { editing in
-                    player.isScrubbing = editing
-                    if !editing {
-                        player.seek(to: player.currentTime)
-                    }
-                }
-            )
-            .tint(.accentColor)
-            .disabled(!player.isLoaded)
-
-            HStack {
-                Text(timeString(player.currentTime))
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                if player.isLoaded {
-                    Text(timeString(player.duration))
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                } else {
-                    ProgressView().scaleEffect(0.5)
-                }
-            }
-
-            HStack(spacing: 20) {
-                Spacer()
-
-                // Rewind 10s
-                Button {
-                    player.seek(to: max(0, player.currentTime - 10))
-                } label: {
-                    Image(systemName: "gobackward.10")
-                        .font(.title2)
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.leftArrow, modifiers: [])
-
-                // Play / Pause
-                Button {
-                    player.isPlaying ? player.pause() : player.play()
-                } label: {
-                    Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 44))
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.space, modifiers: [])
-
-                // Forward 10s
-                Button {
-                    player.seek(to: min(player.duration, player.currentTime + 10))
-                } label: {
-                    Image(systemName: "goforward.10")
-                        .font(.title2)
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.rightArrow, modifiers: [])
-
-                Spacer()
-
-                // Speed picker
-                Menu(player.speedLabel) {
-                    ForEach(AudioPlayerViewModel.speeds, id: \.self) { speed in
-                        Button("\(speed, specifier: "%.2g")×") {
-                            player.setSpeed(speed)
+                // Progress bar
+                Slider(
+                    value: $player.currentTime,
+                    in: 0...(player.duration > 0 ? player.duration : 1),
+                    onEditingChanged: { editing in
+                        player.isScrubbing = editing
+                        if !editing {
+                            player.seek(to: player.currentTime)
                         }
                     }
+                )
+                .tint(.accentColor)
+                .disabled(!player.isLoaded)
+
+                HStack {
+                    Text(timeString(player.currentTime))
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if player.isLoaded {
+                        Text(timeString(player.duration))
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ProgressView().scaleEffect(0.5)
+                    }
                 }
-                .frame(width: 60)
-                .menuStyle(.borderlessButton)
+
+                HStack(spacing: 20) {
+                    Spacer()
+
+                    // Rewind 10s
+                    Button {
+                        player.seek(to: max(0, player.currentTime - 10))
+                    } label: {
+                        Image(systemName: "gobackward.10")
+                            .font(.title2)
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.leftArrow, modifiers: [])
+
+                    // Play / Pause
+                    Button {
+                        player.isPlaying ? player.pause() : player.play()
+                    } label: {
+                        Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                            .font(.system(size: 44))
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.space, modifiers: [])
+
+                    // Forward 10s
+                    Button {
+                        player.seek(to: min(player.duration, player.currentTime + 10))
+                    } label: {
+                        Image(systemName: "goforward.10")
+                            .font(.title2)
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.rightArrow, modifiers: [])
+
+                    Spacer()
+
+                    // Speed picker
+                    Menu(player.speedLabel) {
+                        ForEach(AudioPlayerViewModel.speeds, id: \.self) { speed in
+                            Button("\(speed, specifier: "%.2g")×") {
+                                player.setSpeed(speed)
+                            }
+                        }
+                    }
+                    .frame(width: 60)
+                    .menuStyle(.borderlessButton)
+                }
             }
         }
         .padding(16)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var unavailableRecordingView: some View {
+        ContentUnavailableView {
+            Label(unavailableRecordingTitle, systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+        } description: {
+            Text(unavailableRecordingDescription)
+        } actions: {
+            Text(meeting.recordingURL.lastPathComponent)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .frame(maxWidth: .infinity, minHeight: 220)
+        .background(.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var unavailableRecordingTitle: String {
+        switch player.loadError {
+        case .invalidFile:
+            return "Recording File Unplayable"
+        case .fileMissing, nil:
+            return "Recording File Missing"
+        }
+    }
+
+    private var unavailableRecordingDescription: String {
+        switch player.loadError {
+        case .invalidFile:
+            return "The recording file exists, but macOS could not read it as playable media. Playback and retranscription are unavailable."
+        case .fileMissing, nil:
+            return "The original recording file was deleted or moved, so playback and retranscription are unavailable."
+        }
     }
 
     // MARK: - Transcript
@@ -246,6 +285,10 @@ struct MeetingDetailView: View {
 
                 if isTranscribing {
                     EmptyView()
+                } else if !meeting.recordingFileExists {
+                    Label("File missing", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
                 } else {
                     switch meeting.transcriptionStatus {
                     case .pending:
@@ -356,6 +399,7 @@ struct MeetingDetailView: View {
             } label: {
                 Label("Reveal in Finder", systemImage: "folder")
             }
+            .disabled(!meeting.recordingFileExists)
 
             Button(role: .destructive) {
                 onDelete(meeting)

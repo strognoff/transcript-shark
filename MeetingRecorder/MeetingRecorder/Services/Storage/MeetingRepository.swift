@@ -220,6 +220,20 @@ final class MeetingRepository {
     }
 
     func retryTranscription(_ meeting: Meeting) async {
+        guard meeting.recordingFileExists else {
+            let message = "Recording file is missing. Restore the original file before transcribing."
+            if let record = fetchRecord(id: meeting.id) {
+                record.transcriptionStatusRaw = TranscriptionStatus.failed(message).rawString
+                record.updatedAt = Date()
+                try? context.save()
+            }
+            if let idx = meetings.firstIndex(where: { $0.id == meeting.id }) {
+                meetings[idx].transcriptionStatus = .failed(message)
+            }
+            logger.warning("MeetingRepository: cannot transcribe missing recording \(meeting.id)")
+            return
+        }
+
         // Update status in DB
         if let record = fetchRecord(id: meeting.id) {
             record.transcriptionStatusRaw = "pending"

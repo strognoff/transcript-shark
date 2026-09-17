@@ -31,6 +31,10 @@ struct Meeting: Identifiable, Sendable, Hashable {
     var folderID: UUID?
     var summaryPromptOverride: String?
 
+    nonisolated var recordingFileExists: Bool {
+        FileManager.default.fileExists(atPath: recordingURL.path)
+    }
+
     var duration: TimeInterval? {
         guard let endedAt else { return nil }
         return endedAt.timeIntervalSince(startedAt)

@@ -102,15 +102,22 @@ struct MeetingRowView: View {
     var body: some View {
         HStack(spacing: 12) {
             // Status indicator
-            Text(statusSymbol)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(statusColor)
+            statusIndicator
                 .frame(width: 14)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(meeting.title)
-                    .font(.body.weight(.medium))
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(meeting.title)
+                        .font(.body.weight(.medium))
+                        .lineLimit(1)
+
+                    if !meeting.recordingFileExists {
+                        Text("File missing")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.orange)
+                            .lineLimit(1)
+                    }
+                }
 
                 HStack(spacing: 8) {
                     Text(timeString)
@@ -134,6 +141,21 @@ struct MeetingRowView: View {
             }
         }
         .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private var statusIndicator: some View {
+        if !meeting.recordingFileExists {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 12))
+                .foregroundStyle(.orange)
+                .help("Recording file is missing")
+                .accessibilityLabel("Recording file missing")
+        } else {
+            Text(statusSymbol)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(statusColor)
+        }
     }
 
     private var statusSymbol: String {

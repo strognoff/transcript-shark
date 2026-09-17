@@ -8,6 +8,7 @@
 
 import Testing
 import Foundation
+import AVFoundation
 import CoreGraphics
 @testable import MeetingRecorder
 
@@ -281,16 +282,102 @@ struct AudioCaptureTests {
 @MainActor
 struct RecordingPlayerTests {
 
-    @Test func loadingRecordingExposesAVPlayerForVideoPlayback() {
+    @Test func loadingRecordingExposesAVPlayerForVideoPlayback() async throws {
         let viewModel = AudioPlayerViewModel()
-        let url = URL(fileURLWithPath: "/tmp/test_recording.mp4")
+        let url = try makePlayableAudioFile()
+        defer { try? FileManager.default.removeItem(at: url) }
 
-        viewModel.load(url: url)
+        let task = viewModel.load(url: url)
+        await task?.value
 
         #expect(viewModel.avPlayer != nil)
+        #expect(viewModel.loadError == nil)
+        #expect(viewModel.isLoaded)
 
         viewModel.stop()
         #expect(viewModel.avPlayer == nil)
+    }
+
+    @Test func loadingMissingRecordingDoesNotCreatePlayer() {
+        let viewModel = AudioPlayerViewModel()
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("mp4")
+
+        let task = viewModel.load(url: url)
+
+        #expect(task == nil)
+        #expect(viewModel.avPlayer == nil)
+        #expect(viewModel.loadError == .fileMissing)
+        #expect(!viewModel.isLoaded)
+    }
+
+    @Test func loadingInvalidExistingRecordingDoesNotCreatePlayer() async throws {
+        let viewModel = AudioPlayerViewModel()
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("mp4")
+        try Data("not a playable recording".utf8).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let task = viewModel.load(url: url)
+        await task?.value
+
+        #expect(viewModel.avPlayer == nil)
+        #expect(viewModel.loadError == .invalidFile)
+        #expect(!viewModel.isLoaded)
+    }
+
+    private func makePlayableAudioFile() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("caf")
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: 44_100.0,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false
+        ]
+        let file = try AVAudioFile(forWriting: url, settings: settings)
+        let frameCount = AVAudioFrameCount(44_100 / 10)
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: frameCount) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        buffer.frameLength = frameCount
+        try file.write(from: buffer)
+        return url
+    }
+}
+
+// MARK: - Meeting Availability Tests
+
+struct MeetingAvailabilityTests {
+
+    @Test func recordingFileExistsReflectsCurrentFileAvailability() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("mp4")
+        try Data().write(to: url)
+
+        let meeting = Meeting(
+            id: UUID(),
+            title: "Test Recording",
+            startedAt: Date(),
+            endedAt: nil,
+            meetingApplication: "Manual",
+            recordingURL: url,
+            transcriptURL: nil,
+            transcriptionStatus: .pending,
+            folderID: nil,
+            summaryPromptOverride: nil
+        )
+
+        #expect(meeting.recordingFileExists)
+
+        try FileManager.default.removeItem(at: url)
+        #expect(!meeting.recordingFileExists)
     }
 }
 

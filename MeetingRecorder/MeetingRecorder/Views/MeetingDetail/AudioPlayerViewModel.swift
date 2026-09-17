@@ -12,6 +12,11 @@ import SwiftUI
 @MainActor
 final class AudioPlayerViewModel: ObservableObject {
 
+    enum LoadError: Equatable {
+        case fileMissing
+        case invalidFile
+    }
+
     static let speeds: [Float] = [0.75, 1.0, 1.25, 1.5, 2.0]
 
     @Published var isPlaying = false
@@ -19,6 +24,7 @@ final class AudioPlayerViewModel: ObservableObject {
     @Published var duration: TimeInterval = 0
     @Published var speed: Float = 1.0
     @Published var isLoaded = false
+    @Published private(set) var loadError: LoadError?
     @Published private(set) var avPlayer: AVPlayer?
 
     // True while the user is dragging the slider — suppresses the periodic update
@@ -26,28 +32,52 @@ final class AudioPlayerViewModel: ObservableObject {
 
     var speedLabel: String { "\(String(format: "%.2g", speed))×" }
 
+    private var loadTask: Task<Void, Never>?
     private var timeObserver: Any?
     private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Load
 
-    func load(url: URL) {
+    @discardableResult
+    func load(url: URL) -> Task<Void, Never>? {
         stop()
 
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            loadError = .fileMissing
+            return nil
+        }
+
+        let task = Task { [weak self] in
+            let asset = AVURLAsset(url: url)
+            guard let loadedDuration = try? await asset.load(.duration),
+                  loadedDuration.isValid,
+                  !loadedDuration.isIndefinite,
+                  loadedDuration.seconds.isFinite,
+                  loadedDuration.seconds > 0 else {
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    guard let self, !Task.isCancelled else { return }
+                    self.loadError = .invalidFile
+                }
+                return
+            }
+
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self, !Task.isCancelled else { return }
+                self.configurePlayer(url: url, duration: loadedDuration.seconds)
+            }
+        }
+        loadTask = task
+        return task
+    }
+
+    private func configurePlayer(url: URL, duration: TimeInterval) {
         let item = AVPlayerItem(url: url)
         let p = AVPlayer(playerItem: item)
         self.avPlayer = p
-
-        // Load duration asynchronously from the asset — avoids the "always 0" bug
-        // caused by reading duration before AVPlayerItem finishes loading.
-        Task { [weak self] in
-            guard let self else { return }
-            let asset = AVURLAsset(url: url)
-            if let d = try? await asset.load(.duration), d.isValid, !d.isIndefinite {
-                self.duration = d.seconds
-                self.isLoaded = true
-            }
-        }
+        self.duration = duration
+        self.isLoaded = true
 
         // Observe playback end
         NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime, object: item)
@@ -81,6 +111,8 @@ final class AudioPlayerViewModel: ObservableObject {
     }
 
     func stop() {
+        loadTask?.cancel()
+        loadTask = nil
         if let p = avPlayer, let obs = timeObserver {
             p.removeTimeObserver(obs)
         }
@@ -89,6 +121,7 @@ final class AudioPlayerViewModel: ObservableObject {
         timeObserver = nil
         isPlaying = false
         isLoaded = false
+        loadError = nil
         currentTime = 0
         duration = 0
         isScrubbing = false

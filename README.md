@@ -8,7 +8,7 @@ Transcript Shark is a native macOS menu bar app for recording, transcribing, org
 
 It records your microphone and system audio, generates speaker-labelled transcripts, keeps everything local on your Mac, and can generate AI summaries with your choice of local CLI provider: **Tabnine** or **OpenCode**.
 
-> **Version:** 1.2 (build 66)
+> **Version:** 1.4 (build 68)
 > **Platform:** macOS 15+ · Swift 6 · Apple Silicon & Intel
 
 ---
