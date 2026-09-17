@@ -18,6 +18,13 @@ import CoreMedia
 import CoreAudio
 import OSLog
 
+private extension CGRect {
+    var area: CGFloat {
+        guard !isNull, !isEmpty else { return 0 }
+        return width * height
+    }
+}
+
 @MainActor
 final class AudioCapture: NSObject, AudioCaptureService {
 
@@ -70,6 +77,9 @@ final class AudioCapture: NSObject, AudioCaptureService {
         config.channelCount  = 2
         config.width  = target.width
         config.height = target.height
+        if let sourceRect = target.sourceRect {
+            config.sourceRect = sourceRect
+        }
         config.minimumFrameInterval = CMTime(value: 1, timescale: 5)
 
         logger.info("🎙 Microphone capture enabled (system default device)")
@@ -132,6 +142,7 @@ final class AudioCapture: NSObject, AudioCaptureService {
         let filter: SCContentFilter
         let width: Int
         let height: Int
+        let sourceRect: CGRect?
     }
 
     private func captureTarget(from content: SCShareableContent) throws -> CaptureTarget {
@@ -140,13 +151,15 @@ final class AudioCapture: NSObject, AudioCaptureService {
             return try wholeScreenTarget(from: content)
 
         case .selectedWindow(let windowID, let fallbackToWholeScreen):
-            if let window = ScreenCaptureWindowProvider.window(matching: windowID, in: content) {
-                let frame = window.frame
-                logger.info("AudioCapture: using selected-window capture")
+            if let window = ScreenCaptureWindowProvider.window(matching: windowID, in: content),
+               let display = display(containing: window.frame, in: content) {
+                let sourceRect = sourceRect(for: window.frame, in: display)
+                logger.info("AudioCapture: using display-region capture for selected window")
                 return CaptureTarget(
-                    filter: SCContentFilter(desktopIndependentWindow: window),
-                    width: max(2, Int(frame.width.rounded(.up))),
-                    height: max(2, Int(frame.height.rounded(.up)))
+                    filter: SCContentFilter(display: display, excludingWindows: []),
+                    width: max(2, Int(sourceRect.width.rounded(.up))),
+                    height: max(2, Int(sourceRect.height.rounded(.up))),
+                    sourceRect: sourceRect
                 )
             }
 
@@ -161,7 +174,29 @@ final class AudioCapture: NSObject, AudioCaptureService {
         return CaptureTarget(
             filter: SCContentFilter(display: display, excludingWindows: []),
             width: 1280,
-            height: 720
+            height: 720,
+            sourceRect: nil
+        )
+    }
+
+    private func display(containing frame: CGRect, in content: SCShareableContent) -> SCDisplay? {
+        content.displays.max { lhs, rhs in
+            lhs.frame.intersection(frame).area < rhs.frame.intersection(frame).area
+        } ?? content.displays.first
+    }
+
+    private func sourceRect(for frame: CGRect, in display: SCDisplay) -> CGRect {
+        let displayFrame = display.frame
+        let clipped = frame.intersection(displayFrame)
+        guard !clipped.isNull, clipped.width > 0, clipped.height > 0 else {
+            return CGRect(x: 0, y: 0, width: display.width, height: display.height)
+        }
+
+        return CGRect(
+            x: clipped.minX - displayFrame.minX,
+            y: clipped.minY - displayFrame.minY,
+            width: clipped.width,
+            height: clipped.height
         )
     }
 
