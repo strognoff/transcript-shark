@@ -8,6 +8,7 @@ Transcript Shark is a native macOS menu bar app for recording, transcribing, org
 
 It records your microphone and system audio, generates speaker-labelled transcripts, keeps everything local on your Mac, and can generate AI summaries with your choice of local CLI provider: **Tabnine** or **OpenCode**.
 
+> **Version:** 1.1 (build 65)
 > **Platform:** macOS 15+ · Swift 6 · Apple Silicon & Intel
 
 ---
@@ -38,7 +39,9 @@ It records your microphone and system audio, generates speaker-labelled transcri
 - Organises recordings by folder, date, and search.
 - Lets you rename recordings so titles are meaningful.
 - Lets you record the whole screen or a selected window.
-- Provides a camera bubble overlay with selectable camera input; selected-window recordings constrain the bubble to that window.
+- Shows a refreshable window picker in **Settings → Recording → Capture Area**.
+- Falls back to whole-screen recording if the previously selected window is no longer available.
+- Provides a camera bubble overlay with selectable camera input; selected-window recordings constrain the bubble to that window and include it in the recorded region.
 - Generates AI summaries using a local provider: Tabnine or OpenCode.
 - Lets you customise the global AI prompt and override it per recording.
 
@@ -63,7 +66,7 @@ All data stays on your Mac. Transcript Shark does not upload audio, transcripts,
 | Permission | Why |
 |---|---|
 | **Microphone** | Records your voice |
-| **Screen Recording** | Captures system audio and the configured whole-screen or selected-window recording area |
+| **Screen Recording** | Captures system audio and the configured whole-screen or selected-window recording area. Required even when recording only a window. |
 | **Camera** | Shows the optional camera bubble overlay |
 | **Notifications** | Notifies when recording/transcription status changes |
 
@@ -127,9 +130,23 @@ Click the menu bar icon → **Start Recording Manually** to record anything: liv
 
 When auto-recording is enabled, Transcript Shark monitors Microsoft Teams signals and starts/stops recording when a Teams call appears active. This remains an automation convenience; manual recording is available for all other workflows.
 
-### Camera bubble
+### Capture area
 
-Go to **Settings → Recording** to choose whether new recordings capture the whole screen or one selected window. If the selected window is unavailable when recording starts, Transcript Shark falls back to the whole screen.
+Go to **Settings → Recording → Capture Area** to choose what new recordings capture.
+
+| Mode | Behaviour |
+|---|---|
+| **Whole Screen** | Records the default display area. |
+| **Selected Window** | Shows a **Window** dropdown with currently visible windows. Pick the window you want to record before starting. |
+
+Selected-window mode details:
+
+- Use **Refresh Windows** if the target app/window was opened after Settings appeared.
+- If the saved window is closed or unavailable when recording starts, Transcript Shark falls back to whole-screen recording instead of failing.
+- The selected-window recording is implemented as a cropped display-region capture. This is intentional so the floating camera bubble can be included in the final recording.
+- Because it records pixels in that region, anything visibly overlapping that region may be captured.
+
+### Camera bubble
 
 Go to **Settings → Recording → Camera Bubble** to:
 
@@ -137,7 +154,7 @@ Go to **Settings → Recording → Camera Bubble** to:
 - Choose **Automatic**, built-in camera, or a connected USB camera.
 - Keep the bubble inside the selected window while selected-window mode is active and the window is available.
 
-The bubble appears as a small circular preview in the bottom-right corner of the screen. Background blur was removed for stability and is not currently available.
+The bubble appears as a small circular preview in the bottom-right corner of the screen by default. In selected-window mode, Transcript Shark constrains the bubble to the selected window and records it as part of the cropped capture region. Background blur was removed for stability and is not currently available.
 
 ### Main window
 
@@ -230,7 +247,7 @@ Files are stored under:
 
 ## AI Summary
 
-The AI Summary panel can generate and persist a Markdown summary next to the recording.
+The AI Summary panel can generate and persist a Markdown summary next to the recording. Each recording can also have its own prompt override.
 
 Supported local providers:
 
@@ -239,13 +256,21 @@ Supported local providers:
 | Tabnine | `/Users/<you>/.local/bin/tabnine` |
 | OpenCode | `/usr/local/bin/opencode` |
 
-Configure this in **Settings → AI Summary**:
+Configure global defaults in **Settings → AI Summary**:
 
 - Choose **Tabnine** or **OpenCode**.
 - Set the provider executable path.
 - Edit the global summary instructions/prompt.
 - Reset the global prompt to the default.
-- Override the prompt for an individual recording from its AI Summary panel.
+
+Per-recording prompt overrides:
+
+- Open a recording and expand **Prompt Override** in the AI Summary panel.
+- Enter custom instructions and click **Save Override**.
+- A saved override applies only to that recording and takes precedence over the global prompt.
+- Blank overrides are treated as “use the global prompt”.
+- **Use Global Prompt** clears the recording-specific override.
+- **Summarise**, **Retry**, and **Re-summarise** use the latest effective prompt.
 
 Example custom prompt:
 
@@ -267,6 +292,16 @@ Click **Re-summarise** to regenerate and overwrite the saved summary.
 
 Open via **Settings…** in the menu bar or `⌘,`.
 
+### Recording settings
+
+The **Recording** tab contains:
+
+- **Capture Area** — choose **Whole Screen** or **Selected Window**.
+- **Window** — when **Selected Window** is active, choose from currently visible windows.
+- **Refresh Windows** — reload the window list.
+- **Camera Bubble** — show/hide the floating preview and choose a camera.
+- **Audio Quality** — current recording format information.
+
 | Tab | What you can configure |
 |---|---|
 | **General** | Launch at login, auto-recording, startup screen, notifications |
@@ -274,7 +309,7 @@ Open via **Settings…** in the menu bar or `⌘,`.
 | **Transcription** | Auto-transcribe after recording, language |
 | **Storage** | Recording location, open in Finder, retention policy placeholder |
 | **Privacy** | Screen Recording, Microphone, and Camera permission status |
-| **AI Summary** | Provider selection, executable path, custom summary instructions |
+| **AI Summary** | Provider selection, executable path, global summary instructions |
 
 ---
 
@@ -386,7 +421,8 @@ Shipped/current:
 - Speaker-attributed transcription
 - Folder organisation
 - Recording rename
-- Camera bubble with camera selection
+- Whole-screen and selected-window recording
+- Camera bubble with camera selection, selected-window constraints, and recording inclusion
 - AI Summary with Tabnine/OpenCode provider selection
 - Global and per-recording custom summary prompts
 - Menu bar controls
