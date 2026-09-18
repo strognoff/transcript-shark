@@ -8,8 +8,21 @@ Transcript Shark is a native macOS menu bar app for recording, transcribing, org
 
 It records your microphone and system audio, generates speaker-labelled transcripts, keeps everything local on your Mac, and can generate AI summaries with your choice of local CLI provider: **Tabnine** or **OpenCode**.
 
-> **Version:** 1.4 (build 68)
+> **Version:** 1.5 (build 69)
 > **Platform:** macOS 15+ · Swift 6 · Apple Silicon & Intel
+
+---
+
+## Use cases
+
+Transcript Shark is useful anywhere you want a local recording, a searchable transcript, and an AI-ready summary or draft:
+
+- **Record videos and demos** — capture your screen, microphone, and system audio, then generate a transcript for editing, captions, documentation, or release notes.
+- **Streamers and creators** — record live streams, tutorials, walkthroughs, podcasts, or commentary and turn the session into clips, show notes, summaries, or follow-up content.
+- **Meetings and calls** — capture Teams calls, interviews, sales calls, user research, standups, and planning sessions with speaker-labelled transcripts.
+- **Blog and article drafting** — describe an idea out loud, record a conversation, or capture a video/article discussion, then ask your local AI provider to turn the transcript into a readable article, outline, newsletter, or documentation page.
+- **Learning and research** — record lectures, webinars, courses, demos, or technical deep dives and search the transcript later for key decisions, quotes, commands, and action items.
+- **Personal knowledge base** — keep recordings, transcripts, and summaries organised locally by folder, date, and title without uploading your audio to Transcript Shark servers.
 
 ---
 

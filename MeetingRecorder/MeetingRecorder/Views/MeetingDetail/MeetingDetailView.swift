@@ -7,7 +7,7 @@
 
 import SwiftUI
 import AVFoundation
-import AVKit
+import AppKit
 
 struct MeetingDetailView: View {
 
@@ -135,7 +135,7 @@ struct MeetingDetailView: View {
                 unavailableRecordingView
             } else {
                 if let avPlayer = player.avPlayer {
-                    VideoPlayer(player: avPlayer)
+                    PlayerLayerView(player: avPlayer)
                         .aspectRatio(16.0 / 9.0, contentMode: .fit)
                         .frame(minHeight: 220)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -444,6 +444,47 @@ struct MeetingDetailView: View {
     private func timeString(_ s: TimeInterval) -> String {
         let m = Int(s) / 60; let sec = Int(s) % 60
         return String(format: "%d:%02d", m, sec)
+    }
+}
+
+// MARK: - Player layer
+
+private struct PlayerLayerView: NSViewRepresentable {
+    let player: AVPlayer
+
+    func makeNSView(context: Context) -> PlayerContainerView {
+        let view = PlayerContainerView()
+        view.playerLayer.player = player
+        return view
+    }
+
+    func updateNSView(_ nsView: PlayerContainerView, context: Context) {
+        nsView.playerLayer.player = player
+    }
+}
+
+private final class PlayerContainerView: NSView {
+    override var wantsUpdateLayer: Bool { true }
+
+    let playerLayer = AVPlayerLayer()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer = CALayer()
+        layer?.backgroundColor = NSColor.black.cgColor
+        playerLayer.videoGravity = .resizeAspect
+        layer?.addSublayer(playerLayer)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func layout() {
+        super.layout()
+        playerLayer.frame = bounds
     }
 }
 

@@ -47,6 +47,11 @@ final class AudioPlayerViewModel: ObservableObject {
             return nil
         }
 
+        guard isLikelyPlayableContainer(at: url) else {
+            loadError = .invalidFile
+            return nil
+        }
+
         let task = Task { [weak self] in
             let asset = AVURLAsset(url: url)
             guard let loadedDuration = try? await asset.load(.duration),
@@ -70,6 +75,42 @@ final class AudioPlayerViewModel: ObservableObject {
         }
         loadTask = task
         return task
+    }
+
+    private func isLikelyPlayableContainer(at url: URL) -> Bool {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let fileSize = attributes[.size] as? NSNumber,
+              fileSize.intValue > 16 else {
+            return false
+        }
+
+        let fileExtension = url.pathExtension.lowercased()
+        guard let header = try? Data(contentsOf: url, options: .mappedIfSafe).prefix(64) else {
+            return false
+        }
+
+        switch fileExtension {
+        case "mp4", "m4a", "mov":
+            return headerContainsMP4FileTypeBox(header)
+        case "caf":
+            return header.starts(with: Data("caff".utf8))
+        default:
+            return true
+        }
+    }
+
+    private func headerContainsMP4FileTypeBox(_ header: Data.SubSequence) -> Bool {
+        let bytes = Array(header)
+        guard bytes.count >= 12 else { return false }
+        for index in 4...(bytes.count - 4) {
+            if bytes[index] == 0x66,
+               bytes[index + 1] == 0x74,
+               bytes[index + 2] == 0x79,
+               bytes[index + 3] == 0x70 {
+                return true
+            }
+        }
+        return false
     }
 
     private func configurePlayer(url: URL, duration: TimeInterval) {

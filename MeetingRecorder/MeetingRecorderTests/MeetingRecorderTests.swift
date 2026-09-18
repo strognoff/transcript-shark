@@ -321,8 +321,8 @@ struct RecordingPlayerTests {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let task = viewModel.load(url: url)
-        await task?.value
 
+        #expect(task == nil)
         #expect(viewModel.avPlayer == nil)
         #expect(viewModel.loadError == .invalidFile)
         #expect(!viewModel.isLoaded)
