@@ -34,6 +34,9 @@ final class AppState: ObservableObject {
     @Published private(set) var cameraBubbleEnabled: Bool
     @Published private(set) var availableCameras: [CameraDevice]
     @Published private(set) var selectedCameraID: String?
+    @Published private(set) var cameraBubbleStyle: CameraBubbleStyle
+    @Published private(set) var mouseZoomEnabled: Bool
+    @Published private(set) var mouseZoomActivationModifier: MouseZoomActivationModifier
     @Published private(set) var captureMode: RecordingCaptureMode
     @Published private(set) var availableCaptureWindows: [SelectableCaptureWindow]
     @Published private(set) var selectedCaptureWindowID: String?
@@ -43,27 +46,39 @@ final class AppState: ObservableObject {
     private(set) var applicationCoordinator: ApplicationCoordinator!
 
     private let cameraOverlayManager: CameraOverlayManaging
+    private let mouseZoomOverlayManager: MouseZoomOverlayManaging
     private let captureWindowProvider: CaptureWindowProviding
     private var cancellables = Set<AnyCancellable>()
     private var constraintRefreshTask: Task<Void, Never>?
 
     init(
         cameraOverlayManager: CameraOverlayManaging = CameraOverlayManager(),
+        mouseZoomOverlayManager: MouseZoomOverlayManaging = MouseZoomOverlayManager(),
         captureWindowProvider: CaptureWindowProviding = ScreenCaptureWindowProvider()
     ) {
         let storedCameraID = UserDefaults.standard.string(forKey: "selectedCameraID")
+        let storedBubbleStyle = CameraBubbleStyle.resolved(from: UserDefaults.standard.string(forKey: kCameraBubbleStyleKey))
+        let storedMouseZoomEnabled = UserDefaults.standard.object(forKey: kMouseZoomEnabledKey) as? Bool ?? true
+        let storedMouseZoomModifier = MouseZoomActivationModifier.resolved(from: UserDefaults.standard.string(forKey: kMouseZoomActivationModifierKey))
         let storedCaptureMode = RecordingCaptureMode.resolved(from: UserDefaults.standard.string(forKey: kRecordingCaptureModeKey))
         let storedWindowID = UserDefaults.standard.string(forKey: kSelectedCaptureWindowIDKey)
 
         self.cameraOverlayManager = cameraOverlayManager
+        self.mouseZoomOverlayManager = mouseZoomOverlayManager
         self.captureWindowProvider = captureWindowProvider
         self.cameraBubbleEnabled = false
         self.availableCameras = cameraOverlayManager.availableCameras
         self.selectedCameraID = storedCameraID
+        self.cameraBubbleStyle = storedBubbleStyle
+        self.mouseZoomEnabled = storedMouseZoomEnabled
+        self.mouseZoomActivationModifier = storedMouseZoomModifier
         self.captureMode = storedCaptureMode
         self.availableCaptureWindows = []
         self.selectedCaptureWindowID = storedWindowID
         self.cameraOverlayManager.setSelectedCameraID(storedCameraID)
+        self.cameraOverlayManager.setBubbleStyle(storedBubbleStyle)
+        self.mouseZoomOverlayManager.setEnabled(storedMouseZoomEnabled)
+        self.mouseZoomOverlayManager.setActivationModifier(storedMouseZoomModifier)
         UserDefaults.standard.removeObject(forKey: "cameraBubbleEnabled")
 
         coordinator.$recorderState
@@ -90,13 +105,18 @@ final class AppState: ObservableObject {
 
     func startRecording(application: String = "Manual") async {
         await coordinator.startRecording(application: application, captureScope: effectiveCaptureScope)
+        if isRecording {
+            mouseZoomOverlayManager.recordingDidStart()
+        }
     }
 
     func stopRecording() async {
+        mouseZoomOverlayManager.recordingDidStop()
         await coordinator.stopRecording()
     }
 
     func reset() {
+        mouseZoomOverlayManager.recordingDidStop()
         coordinator.reset()
     }
 
@@ -124,6 +144,24 @@ final class AppState: ObservableObject {
         Task { @MainActor in
             await setCameraBubbleEnabled(true)
         }
+    }
+
+    func setCameraBubbleStyle(_ style: CameraBubbleStyle) {
+        cameraBubbleStyle = style
+        UserDefaults.standard.set(style.rawValue, forKey: kCameraBubbleStyleKey)
+        cameraOverlayManager.setBubbleStyle(style)
+    }
+
+    func setMouseZoomEnabled(_ enabled: Bool) {
+        mouseZoomEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: kMouseZoomEnabledKey)
+        mouseZoomOverlayManager.setEnabled(enabled)
+    }
+
+    func setMouseZoomActivationModifier(_ modifier: MouseZoomActivationModifier) {
+        mouseZoomActivationModifier = modifier
+        UserDefaults.standard.set(modifier.rawValue, forKey: kMouseZoomActivationModifierKey)
+        mouseZoomOverlayManager.setActivationModifier(modifier)
     }
 
     @discardableResult

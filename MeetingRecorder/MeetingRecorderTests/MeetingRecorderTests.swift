@@ -63,12 +63,17 @@ final class MockCameraOverlayManager: CameraOverlayManaging {
         CameraDevice(id: "usb", localizedName: "USB Camera")
     ]
     var selectedCameraID: String?
+    var bubbleStyle: CameraBubbleStyle?
     var requestedStates: [Bool] = []
     var shouldShowSuccessfully = true
     var movementConstraints: [CGRect?] = []
 
     func setSelectedCameraID(_ cameraID: String?) {
         selectedCameraID = cameraID
+    }
+
+    func setBubbleStyle(_ style: CameraBubbleStyle) {
+        bubbleStyle = style
     }
 
     func setMovementConstraint(_ rect: CGRect?) {
@@ -87,6 +92,35 @@ final class MockCameraOverlayManager: CameraOverlayManaging {
 
     func hide() {
         isVisible = false
+    }
+}
+
+// MARK: - Mock MouseZoomOverlayManager
+
+@MainActor
+final class MockMouseZoomOverlayManager: MouseZoomOverlayManaging {
+    var isRecording = false
+    var enabled: Bool?
+    var activationModifier: MouseZoomActivationModifier?
+    var recordingStarts = 0
+    var recordingStops = 0
+
+    func setEnabled(_ enabled: Bool) {
+        self.enabled = enabled
+    }
+
+    func setActivationModifier(_ modifier: MouseZoomActivationModifier) {
+        activationModifier = modifier
+    }
+
+    func recordingDidStart() {
+        isRecording = true
+        recordingStarts += 1
+    }
+
+    func recordingDidStop() {
+        isRecording = false
+        recordingStops += 1
     }
 }
 
@@ -177,6 +211,70 @@ struct AppStateCameraBubbleTests {
         #expect(appState.selectedCameraID == "usb")
         #expect(mock.selectedCameraID == "usb")
         #expect(UserDefaults.standard.string(forKey: defaultsKey) == "usb")
+    }
+
+    @Test func cameraBubbleStyleIsLoadedAndAppliedToOverlayManager() {
+        UserDefaults.standard.set(CameraBubbleStyle.neon.rawValue, forKey: kCameraBubbleStyleKey)
+        defer { UserDefaults.standard.removeObject(forKey: kCameraBubbleStyleKey) }
+
+        let mock = MockCameraOverlayManager()
+        let appState = AppState(cameraOverlayManager: mock)
+
+        #expect(appState.cameraBubbleStyle == .neon)
+        #expect(mock.bubbleStyle == .neon)
+    }
+
+    @Test func cameraBubbleStyleIsPersistedAndAppliedToOverlayManager() {
+        UserDefaults.standard.removeObject(forKey: kCameraBubbleStyleKey)
+        defer { UserDefaults.standard.removeObject(forKey: kCameraBubbleStyleKey) }
+
+        let mock = MockCameraOverlayManager()
+        let appState = AppState(cameraOverlayManager: mock)
+
+        appState.setCameraBubbleStyle(.fire)
+
+        #expect(appState.cameraBubbleStyle == .fire)
+        #expect(mock.bubbleStyle == .fire)
+        #expect(UserDefaults.standard.string(forKey: kCameraBubbleStyleKey) == CameraBubbleStyle.fire.rawValue)
+    }
+
+    @Test func mouseZoomSettingsAreLoadedAndAppliedToOverlayManager() {
+        UserDefaults.standard.set(false, forKey: kMouseZoomEnabledKey)
+        UserDefaults.standard.set(MouseZoomActivationModifier.option.rawValue, forKey: kMouseZoomActivationModifierKey)
+        defer {
+            UserDefaults.standard.removeObject(forKey: kMouseZoomEnabledKey)
+            UserDefaults.standard.removeObject(forKey: kMouseZoomActivationModifierKey)
+        }
+
+        let mouseZoom = MockMouseZoomOverlayManager()
+        let appState = AppState(mouseZoomOverlayManager: mouseZoom)
+
+        #expect(!appState.mouseZoomEnabled)
+        #expect(appState.mouseZoomActivationModifier == .option)
+        #expect(mouseZoom.enabled == false)
+        #expect(mouseZoom.activationModifier == .option)
+    }
+
+    @Test func mouseZoomSettingsArePersistedAndAppliedToOverlayManager() {
+        UserDefaults.standard.removeObject(forKey: kMouseZoomEnabledKey)
+        UserDefaults.standard.removeObject(forKey: kMouseZoomActivationModifierKey)
+        defer {
+            UserDefaults.standard.removeObject(forKey: kMouseZoomEnabledKey)
+            UserDefaults.standard.removeObject(forKey: kMouseZoomActivationModifierKey)
+        }
+
+        let mouseZoom = MockMouseZoomOverlayManager()
+        let appState = AppState(mouseZoomOverlayManager: mouseZoom)
+
+        appState.setMouseZoomEnabled(false)
+        appState.setMouseZoomActivationModifier(.control)
+
+        #expect(!appState.mouseZoomEnabled)
+        #expect(appState.mouseZoomActivationModifier == .control)
+        #expect(mouseZoom.enabled == false)
+        #expect(mouseZoom.activationModifier == .control)
+        #expect(UserDefaults.standard.bool(forKey: kMouseZoomEnabledKey) == false)
+        #expect(UserDefaults.standard.string(forKey: kMouseZoomActivationModifierKey) == MouseZoomActivationModifier.control.rawValue)
     }
 
     @Test func selectingCameraRestartsVisibleBubble() async {

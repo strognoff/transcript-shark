@@ -235,6 +235,38 @@ private struct RecordingSettingsTab: View {
                 }
                 .disabled(appState.availableCameras.isEmpty)
                 .help("Choose which camera is used by the camera bubble. Select your USB camera here.")
+
+                Picker("Style", selection: Binding(
+                    get: { appState.cameraBubbleStyle },
+                    set: { appState.setCameraBubbleStyle($0) }
+                )) {
+                    ForEach(CameraBubbleStyle.allCases) { style in
+                        Text(style.displayName).tag(style)
+                    }
+                }
+                .help("Choose the visual effect for the camera bubble. Animated styles are captured in recordings when the bubble is visible.")
+            }
+
+            Section("Mouse Zoom") {
+                Toggle("Zoom cursor area while recording", isOn: Binding(
+                    get: { appState.mouseZoomEnabled },
+                    set: { appState.setMouseZoomEnabled($0) }
+                ))
+                .help("While recording, hold the selected modifier key to show a magnified view of the screen area around your cursor.")
+
+                Picker("Hold key", selection: Binding(
+                    get: { appState.mouseZoomActivationModifier },
+                    set: { appState.setMouseZoomActivationModifier($0) }
+                )) {
+                    ForEach(MouseZoomActivationModifier.allCases) { modifier in
+                        Text(modifier.displayName).tag(modifier)
+                    }
+                }
+                .disabled(!appState.mouseZoomEnabled)
+
+                Text("The zoom lens appears only during recordings and is captured in screen recordings so viewers can see details more clearly.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Audio Quality") {
